@@ -207,7 +207,7 @@ dotnet run --project .\Yinka\Yinka.csproj -c Release
 
 Or open **`Yinka.sln`** in Visual Studio and start the **`Yinka`** project. The .NET-based `Yinka.Mac` project has been removed from the solution; only `Yinka.Core` and the Windows `Yinka` project remain there.
 
-**Windows speech**: allow the **microphone** in **Settings → Privacy & security → Microphone**. For **offline** recognition, install the same **language** with **offline speech** assets under **Settings → Time & language**.
+**Windows speech**: the Windows shell ships with **four** swappable engines you can pick from a dropdown in the Transcript panel — WinRT (default), SAPI (legacy desktop, most reliable fallback), Web Speech (WebView2 + Chromium), and Whisper (offline neural). Mic device picker, live VU meter, push-to-talk hotkey, and a `%LOCALAPPDATA%\Yinka\speech.log` diagnostics file are all built in. See [WINDOWS.md §6](WINDOWS.md#6-live-speech-setup) for per-engine setup and the troubleshooting matrix.
 
 ---
 

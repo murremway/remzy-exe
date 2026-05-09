@@ -38,4 +38,24 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
   </ItemGroup>
+  <!--
+    Caption engines and audio meter dependencies.
+      NAudio                       - microphone enumeration + 16 kHz capture (audio meter, Whisper).
+      System.Speech                - SAPI 5.4 fallback engine, ships with desktop Windows.
+      Microsoft.Web.WebView2       - hosts the Web Speech API engine in a hidden Chromium control.
+      Whisper.net + Runtime        - offline neural transcription. Default runtime requires
+                                     AVX/AVX2/FMA/F16C and Windows 11/Server 2022+.
+      Whisper.net.Runtime.NoAvx    - fallback runtime for older CPUs without AVX support.
+                                     Whisper.net auto-selects between the two at startup.
+    Pinned to 1.9.0 (current stable as of May 2026); 1.7.4 had a known packaging bug
+    that broke `dotnet publish` on win-arm64 (missing native binaries in the metapackage).
+  -->
+  <ItemGroup>
+    <PackageReference Include="NAudio" Version="2.2.1" />
+    <PackageReference Include="System.Speech" Version="8.0.0" />
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.2592.51" />
+    <PackageReference Include="Whisper.net" Version="1.9.0" />
+    <PackageReference Include="Whisper.net.Runtime" Version="1.9.0" />
+    <PackageReference Include="Whisper.net.Runtime.NoAvx" Version="1.9.0" />
+  </ItemGroup>
 </Project>

@@ -18,7 +18,9 @@
           <TextBlock Text="Broadcast screen" VerticalAlignment="Center" Margin="18,0,8,0" Foreground="{StaticResource TextMuted}"/>
           <ComboBox x:Name="ScreenBox" Width="240" VerticalAlignment="Center"/>
           <Button x:Name="OpenBroadcastBtn" Content="Open OBS / broadcast window" Margin="14,0,0,0" Padding="12,6" Click="OpenBroadcast_Click"/>
-          <TextBlock x:Name="StatusText" Margin="18,0,0,0" VerticalAlignment="Center" Foreground="{StaticResource TextMuted}" TextWrapping="Wrap" MaxWidth="420"/>
+          <Ellipse x:Name="StatusDot" Width="10" Height="10" Margin="18,0,6,0" VerticalAlignment="Center" Fill="#7A7A7A" ToolTip="Speech engine status"/>
+          <TextBlock x:Name="StatusText" VerticalAlignment="Center" Foreground="{StaticResource TextMuted}" TextWrapping="Wrap" MaxWidth="380"/>
+          <Button x:Name="OpenSpeechLogBtn" Content="Open log" Margin="14,0,0,0" Padding="8,4" Click="OpenSpeechLog_Click" ToolTip="Open speech.log under %LOCALAPPDATA%\Yinka"/>
         </StackPanel>
         <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
           <CheckBox x:Name="ChromaObsCheck" Content="Chroma green background (OBS Color Key)" Checked="ObsOptions_Changed" Unchecked="ObsOptions_Changed"/>
@@ -45,15 +47,49 @@
       <Border Grid.Column="0" Grid.Row="0" Background="{StaticResource PanelBg}" BorderBrush="{StaticResource PanelBorder}" BorderThickness="1" CornerRadius="6" Margin="0,0,8,8">
         <DockPanel Margin="10">
           <TextBlock DockPanel.Dock="Top" Text="Transcript" FontWeight="SemiBold" Margin="0,0,0,4"/>
+
+          <!-- Engine + mic row -->
+          <Grid DockPanel.Dock="Top" Margin="0,2,0,6">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="Auto"/>
+              <ColumnDefinition Width="*"/>
+              <ColumnDefinition Width="Auto"/>
+              <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+            <TextBlock Grid.Column="0" Text="Engine" VerticalAlignment="Center" Foreground="{StaticResource TextMuted}"/>
+            <ComboBox x:Name="EngineBox" Grid.Column="1" Margin="6,0,12,0" VerticalAlignment="Center"
+                      SelectionChanged="EngineBox_SelectionChanged"
+                      ToolTip="Pick the speech engine. WinRT uses Windows.Media.SpeechRecognition; SAPI uses the legacy desktop engine; Web Speech uses WebView2/Chromium; Whisper runs offline locally."/>
+            <TextBlock Grid.Column="2" Text="Mic" VerticalAlignment="Center" Foreground="{StaticResource TextMuted}"/>
+            <ComboBox x:Name="MicBox" Grid.Column="3" Margin="6,0,0,0" VerticalAlignment="Center"
+                      SelectionChanged="MicBox_SelectionChanged"
+                      ToolTip="Audio input device used for the level meter and the Whisper engine."/>
+          </Grid>
+
+          <!-- VU meter -->
+          <Grid DockPanel.Dock="Top" Margin="0,0,0,6" Height="10">
+            <Border Background="#252526" BorderBrush="#3C3C3C" BorderThickness="1" CornerRadius="3"/>
+            <Border x:Name="MeterFill" Background="#2D6A4F" HorizontalAlignment="Left" Width="0" CornerRadius="3"/>
+          </Grid>
+
+          <!-- Capture controls -->
           <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,6">
-            <Button x:Name="StartCaptionBtn" Content="Start Windows speech caption" Padding="10,5" Click="StartCaption_Click"/>
+            <Button x:Name="StartCaptionBtn" Content="Start speech caption" Padding="10,5" Click="StartCaption_Click"/>
             <Button x:Name="StopCaptionBtn" Content="Stop" Margin="8,0,0,0" Padding="10,5" Click="StopCaption_Click" IsEnabled="False"/>
-            <CheckBox x:Name="AutoScanRefsCheck" Content="Auto-scan transcript for references" IsChecked="True" Margin="16,0,0,0" VerticalAlignment="Center"/>
+            <CheckBox x:Name="PushToTalkCheck" Content="Push-to-talk" Margin="16,0,0,0" VerticalAlignment="Center" Click="PushToTalk_Toggled"/>
+            <ComboBox x:Name="PushToTalkKeyBox" Width="120" Margin="6,0,0,0" VerticalAlignment="Center"
+                      SelectionChanged="PushToTalkKey_SelectionChanged"
+                      ToolTip="Hold this key anywhere in Windows to make Yinka listen; release to stop."/>
+            <CheckBox x:Name="AutoScanRefsCheck" Content="Auto-scan refs" IsChecked="True" Margin="16,0,0,0" VerticalAlignment="Center"/>
           </StackPanel>
+
           <TextBlock x:Name="HearingLine" DockPanel.Dock="Top" Text="" Foreground="#7EC8E3" FontSize="12" Margin="0,0,0,6" TextWrapping="Wrap"/>
+
           <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="0,8,0,0">
             <Button x:Name="ScanBtn" Content="Scan for references" Padding="10,5" Click="Scan_Click"/>
             <Button x:Name="SampleBtn" Content="Insert sample lines" Margin="8,0,0,0" Padding="10,5" Click="Sample_Click"/>
+            <Button x:Name="SaveTranscriptBtn" Content="Save…" Margin="8,0,0,0" Padding="10,5" Click="SaveTranscript_Click"
+                    ToolTip="Save the current transcript to a .txt file with a timestamp header."/>
             <Button x:Name="ClearTranscriptBtn" Content="Clear" Margin="8,0,0,0" Padding="10,5" Click="ClearTranscript_Click"/>
           </StackPanel>
           <TextBox x:Name="TranscriptBox" AcceptsReturn="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" FontSize="14"/>

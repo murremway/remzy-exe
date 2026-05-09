@@ -5,6 +5,7 @@ using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Media;
 using System.Windows.Threading;
 
 namespace Yinka;
@@ -12,21 +13,29 @@ namespace Yinka;
 public partial class MainWindow : Window
 {
     private readonly KjvBibleStore _kjv = new();
-    private readonly WindowsSpeechCaptionService _speech;
     private readonly ObservableCollection<ParsedReference> _detections = new();
     private readonly ObservableCollection<VersePayload> _queue = new();
     private readonly DispatcherTimer _scanDebounce;
 
+    private readonly AppSettings _settings;
+    private readonly AudioMeter _meter;
+    private readonly PushToTalk _ptt;
+
+    private ICaptionEngine _engine = null!;
     private BroadcastWindow? _broadcast;
     private VersePayload? _previewPayload;
+    private bool _suppressPersist = true;
 
     public MainWindow()
     {
         InitializeComponent();
-        _speech = new WindowsSpeechCaptionService(Dispatcher);
-        _speech.PhraseCommitted += OnSpeechPhraseCommitted;
-        _speech.Hypothesis += OnSpeechHypothesis;
-        _speech.SessionMessage += OnSpeechSessionMessage;
+
+        _settings = AppSettings.Load();
+        _meter = new AudioMeter(Dispatcher);
+        _meter.LevelChanged += OnMeterLevelChanged;
+        _ptt = new PushToTalk();
+        _ptt.Pressed += OnPushToTalkPressed;
+        _ptt.Released += OnPushToTalkReleased;
 
         DetectionsList.ItemsSource = _detections;
         QueueList.ItemsSource = _queue;
@@ -48,11 +57,21 @@ public partial class MainWindow : Window
             if (_broadcast is not null)
                 SyncBroadcastLayout();
         };
+
+        BuildEngine(_settings.Engine);
     }
 
     private async void MainWindow_Loaded(object sender, RoutedEventArgs e)
     {
         PopulateScreens();
+        PopulateEngineBox();
+        PopulateMicBox();
+        PopulatePushToTalkBox();
+        ApplySettingsToUi();
+        _suppressPersist = false;
+
+        StartMeterIfPossible();
+
         var path = Path.Combine(AppContext.BaseDirectory, "Data", "en_kjv.json");
         SetStatus("Loading bundled KJV…");
         await Task.Run(() => _kjv.LoadFromFile(path)).ConfigureAwait(true);
@@ -74,17 +93,14 @@ public partial class MainWindow : Window
     {
         try
         {
-            if (_speech.IsRunning)
-                _speech.StopAsync().ConfigureAwait(false).GetAwaiter().GetResult();
+            if (_engine.IsRunning)
+                _engine.StopAsync().ConfigureAwait(false).GetAwaiter().GetResult();
         }
-        catch
-        {
-            /* ignore */
-        }
+        catch { /* ignore */ }
         base.OnClosing(e);
     }
 
-    private void MainWindow_PreviewKeyDown(object sender, KeyEventArgs e)
+    private void MainWindow_PreviewKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
     {
         if (e.Key != Key.L)
             return;
@@ -93,6 +109,213 @@ public partial class MainWindow : Window
         GoLive_Click(sender, e);
         e.Handled = true;
     }
+
+    // ---------- Engine plumbing ----------
+
+    private void BuildEngine(CaptionEngineKind kind)
+    {
+        DisposeEngine();
+        _engine = kind switch
+        {
+            CaptionEngineKind.Sapi => new SapiSpeechEngine(Dispatcher),
+            CaptionEngineKind.WebSpeech => new WebSpeechEngine(Dispatcher),
+            CaptionEngineKind.Whisper => new WhisperEngine(Dispatcher, _settings, () => GetSelectedMicIndex()),
+            _ => new WinRtSpeechEngine(Dispatcher, _settings),
+        };
+        _engine.PhraseCommitted += OnSpeechPhraseCommitted;
+        _engine.Hypothesis += OnSpeechHypothesis;
+        _engine.SessionMessage += SetStatus;
+        _engine.StateChanged += OnEngineStateChanged;
+        _engine.Failed += OnEngineFailed;
+
+        var probe = _engine.Probe();
+        if (!probe.IsAvailable)
+        {
+            SetStatus($"{kind} unavailable: {probe.Reason}");
+            SpeechDiagnostics.Warn("MainWindow", $"Engine {kind} unavailable: {probe.Reason}");
+        }
+    }
+
+    private void DisposeEngine()
+    {
+        if (_engine is null)
+            return;
+        try
+        {
+            _engine.PhraseCommitted -= OnSpeechPhraseCommitted;
+            _engine.Hypothesis -= OnSpeechHypothesis;
+            _engine.SessionMessage -= SetStatus;
+            _engine.StateChanged -= OnEngineStateChanged;
+            _engine.Failed -= OnEngineFailed;
+            _engine.Dispose();
+        }
+        catch { /* ignore */ }
+    }
+
+    private void OnEngineStateChanged(CaptionEngineState s)
+    {
+        var color = s switch
+        {
+            CaptionEngineState.Listening => "#5CDB95",
+            CaptionEngineState.Starting => "#F2C14E",
+            CaptionEngineState.Reconnecting => "#F2C14E",
+            CaptionEngineState.Stopping => "#F2C14E",
+            CaptionEngineState.Error => "#E76F51",
+            _ => "#7A7A7A",
+        };
+        StatusDot.Fill = (SolidColorBrush)new BrushConverter().ConvertFrom(color)!;
+
+        StartCaptionBtn.IsEnabled = s is CaptionEngineState.Idle or CaptionEngineState.Error;
+        StopCaptionBtn.IsEnabled = s is CaptionEngineState.Listening or CaptionEngineState.Reconnecting or CaptionEngineState.Starting;
+    }
+
+    private void OnEngineFailed(EngineFailure failure)
+    {
+        var dlg = new EngineErrorDialog(failure) { Owner = this };
+        dlg.ShowDialog();
+    }
+
+    // ---------- Engine + mic UI ----------
+
+    private void PopulateEngineBox()
+    {
+        EngineBox.Items.Clear();
+        EngineBox.Items.Add(new EngineOption(CaptionEngineKind.WinRt, "WinRT (Windows.Media.SpeechRecognition)"));
+        EngineBox.Items.Add(new EngineOption(CaptionEngineKind.Sapi, "SAPI (legacy desktop, most reliable)"));
+        EngineBox.Items.Add(new EngineOption(CaptionEngineKind.WebSpeech, "Web Speech (WebView2 + Chromium, online)"));
+        EngineBox.Items.Add(new EngineOption(CaptionEngineKind.Whisper, "Whisper (offline neural, ~470 MB model)"));
+
+        var match = EngineBox.Items.Cast<EngineOption>().FirstOrDefault(o => o.Kind == _settings.Engine);
+        EngineBox.SelectedItem = match ?? EngineBox.Items[0];
+    }
+
+    private void PopulateMicBox()
+    {
+        MicBox.Items.Clear();
+        foreach (var d in MicEnumerator.List())
+            MicBox.Items.Add(d);
+
+        var idx = MicEnumerator.ResolveDeviceIndex(_settings.MicDeviceIndex, _settings.MicDeviceName);
+        var match = MicBox.Items.Cast<MicEnumerator.MicDevice>().FirstOrDefault(d => d.Index == idx)
+                    ?? MicBox.Items.Cast<MicEnumerator.MicDevice>().First();
+        MicBox.SelectedItem = match;
+    }
+
+    private void PopulatePushToTalkBox()
+    {
+        PushToTalkKeyBox.Items.Clear();
+        foreach (var (vk, label) in PushToTalk.CommonKeys)
+            PushToTalkKeyBox.Items.Add(new PushToTalkOption(vk, label));
+
+        var match = PushToTalkKeyBox.Items.Cast<PushToTalkOption>().FirstOrDefault(o => o.Vk == _settings.PushToTalkVk)
+                    ?? (PushToTalkOption)PushToTalkKeyBox.Items[0]!;
+        PushToTalkKeyBox.SelectedItem = match;
+    }
+
+    private void ApplySettingsToUi()
+    {
+        PushToTalkCheck.IsChecked = _settings.PushToTalkEnabled;
+        if (_settings.PushToTalkEnabled)
+            EnablePushToTalk();
+    }
+
+    private int GetSelectedMicIndex() =>
+        MicBox.SelectedItem is MicEnumerator.MicDevice d ? d.Index : -1;
+
+    private void StartMeterIfPossible() => _meter.Start(GetSelectedMicIndex());
+
+    private void OnMeterLevelChanged(float level)
+    {
+        var maxWidth = (MeterFill.Parent is FrameworkElement fe ? fe.ActualWidth : 240) - 2;
+        if (maxWidth < 4) maxWidth = 4;
+        var w = Math.Max(0, Math.Min(maxWidth, level * maxWidth * 1.2));
+        MeterFill.Width = w;
+
+        // Color escalates with level.
+        var color = level switch
+        {
+            < 0.25f => "#2D6A4F",
+            < 0.7f => "#F2C14E",
+            _ => "#E76F51",
+        };
+        MeterFill.Background = (SolidColorBrush)new BrushConverter().ConvertFrom(color)!;
+    }
+
+    // ---------- Settings event handlers ----------
+
+    private async void EngineBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_suppressPersist) return;
+        if (EngineBox.SelectedItem is not EngineOption opt) return;
+        if (_engine?.Kind == opt.Kind) return;
+
+        if (_engine?.IsRunning == true)
+        {
+            try { await _engine.StopAsync(); } catch { /* ignore */ }
+        }
+
+        _settings.Engine = opt.Kind;
+        _settings.Save();
+        BuildEngine(opt.Kind);
+        SetStatus($"Switched to {opt.Label}.");
+    }
+
+    private void MicBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_suppressPersist) return;
+        if (MicBox.SelectedItem is not MicEnumerator.MicDevice d) return;
+
+        _settings.MicDeviceIndex = d.Index;
+        _settings.MicDeviceName = d.Index < 0 ? null : d.ProductName;
+        _settings.Save();
+
+        StartMeterIfPossible();
+        SetStatus($"Mic set to: {d.ProductName}");
+    }
+
+    private void PushToTalk_Toggled(object sender, RoutedEventArgs e)
+    {
+        if (_suppressPersist) return;
+        _settings.PushToTalkEnabled = PushToTalkCheck.IsChecked == true;
+        _settings.Save();
+        if (_settings.PushToTalkEnabled)
+            EnablePushToTalk();
+        else
+            _ptt.Stop();
+    }
+
+    private void PushToTalkKey_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_suppressPersist) return;
+        if (PushToTalkKeyBox.SelectedItem is not PushToTalkOption opt) return;
+        _settings.PushToTalkVk = opt.Vk;
+        _settings.Save();
+        if (_settings.PushToTalkEnabled)
+            EnablePushToTalk();
+    }
+
+    private void EnablePushToTalk()
+    {
+        _ptt.Stop();
+        if (!_ptt.Start(_settings.PushToTalkVk))
+            SetStatus("Push-to-talk could not install the keyboard hook.");
+    }
+
+    private async void OnPushToTalkPressed()
+    {
+        if (_engine.IsRunning) return;
+        try { await _engine.StartAsync(); } catch (Exception ex) { SpeechDiagnostics.Error("MainWindow", ex); }
+    }
+
+    private async void OnPushToTalkReleased()
+    {
+        if (!_engine.IsRunning) return;
+        try { await _engine.StopAsync(); } catch (Exception ex) { SpeechDiagnostics.Error("MainWindow", ex); }
+    }
+
+    private void OpenSpeechLog_Click(object sender, RoutedEventArgs e) => SpeechDiagnostics.OpenLog();
+
+    // ---------- Existing dashboard plumbing (unchanged below) ----------
 
     private void PopulateScreens()
     {
@@ -164,35 +387,23 @@ public partial class MainWindow : Window
     {
         try
         {
-            SetStatus("Starting Windows speech…");
-            await _speech.StartAsync().ConfigureAwait(true);
-            StartCaptionBtn.IsEnabled = false;
-            StopCaptionBtn.IsEnabled = true;
-            SetStatus("Listening (Windows speech).");
+            SetStatus("Starting speech engine…");
+            await _engine.StartAsync().ConfigureAwait(true);
         }
         catch (Exception ex)
         {
             SetStatus("Speech error: " + ex.Message);
-            MessageBox.Show(
-                "Could not start Windows speech recognition. Grant microphone access in Windows Settings → Privacy → Microphone, and ensure an English speech pack is installed.\n\n" + ex.Message,
-                "Yinka",
-                MessageBoxButton.OK,
-                MessageBoxImage.Error);
+            SpeechDiagnostics.Error("MainWindow", ex);
+            new EngineErrorDialog(new EngineFailure(
+                "Could not start the speech engine.",
+                ex.Message,
+                Inner: ex)) { Owner = this }.ShowDialog();
         }
     }
 
     private async void StopCaption_Click(object sender, RoutedEventArgs e)
     {
-        try
-        {
-            await _speech.StopAsync().ConfigureAwait(true);
-        }
-        catch
-        {
-            /* ignore */
-        }
-        StartCaptionBtn.IsEnabled = true;
-        StopCaptionBtn.IsEnabled = false;
+        try { await _engine.StopAsync().ConfigureAwait(true); } catch { /* ignore */ }
         HearingLine.Text = "";
         SetStatus("Speech caption stopped.");
     }
@@ -214,8 +425,6 @@ public partial class MainWindow : Window
     {
         HearingLine.Text = string.IsNullOrWhiteSpace(hypothesis) ? "" : "Listening… " + hypothesis;
     }
-
-    private void OnSpeechSessionMessage(string message) => SetStatus(message);
 
     private void Scan_Click(object sender, RoutedEventArgs e) =>
         ApplyDetectionsFromTranscript(silent: false);
@@ -248,6 +457,41 @@ public partial class MainWindow : Window
         _detections.Clear();
         HearingLine.Text = "";
         SetStatus("Transcript cleared.");
+    }
+
+    private void SaveTranscript_Click(object sender, RoutedEventArgs e)
+    {
+        var text = TranscriptBox.Text ?? "";
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            SetStatus("Transcript is empty—nothing to save.");
+            return;
+        }
+
+        var dlg = new Microsoft.Win32.SaveFileDialog
+        {
+            Title = "Save transcript",
+            Filter = "Text files (*.txt)|*.txt|Markdown (*.md)|*.md|All files (*.*)|*.*",
+            DefaultExt = ".txt",
+            FileName = $"yinka-transcript-{DateTime.Now:yyyyMMdd-HHmm}.txt",
+            AddExtension = true,
+            OverwritePrompt = true,
+        };
+        if (dlg.ShowDialog(this) != true)
+            return;
+
+        try
+        {
+            var header = $"# Yinka transcript{Environment.NewLine}# Saved {DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss zzz}{Environment.NewLine}{Environment.NewLine}";
+            File.WriteAllText(dlg.FileName, header + text);
+            SetStatus($"Transcript saved to {dlg.FileName}");
+        }
+        catch (Exception ex)
+        {
+            SetStatus("Save failed: " + ex.Message);
+            SpeechDiagnostics.Error("MainWindow", ex);
+            MessageBox.Show(this, "Could not save transcript:\n\n" + ex.Message, "Yinka", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
     }
 
     private void LoadKjv_Click(object sender, RoutedEventArgs e)
@@ -390,11 +634,23 @@ public partial class MainWindow : Window
     protected override void OnClosed(EventArgs e)
     {
         _broadcast?.Close();
-        _speech.Dispose();
+        _ptt.Dispose();
+        _meter.Dispose();
+        DisposeEngine();
         base.OnClosed(e);
     }
 
     private sealed record ScreenOption(int Index, string Label)
+    {
+        public override string ToString() => Label;
+    }
+
+    private sealed record EngineOption(CaptionEngineKind Kind, string Label)
+    {
+        public override string ToString() => Label;
+    }
+
+    private sealed record PushToTalkOption(int Vk, string Label)
     {
         public override string ToString() => Label;
     }

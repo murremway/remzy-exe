@@ -198,29 +198,59 @@ You only need signing if you plan to distribute outside your own machine or chur
 
 ## 6. Live speech setup
 
+Yinka ships with **four** speech engines you can switch between at runtime from the **Engine** dropdown in the Transcript panel. Each is best suited to a different scenario. Your choice is persisted to `%LOCALAPPDATA%\Yinka\settings.json` and remembered between sessions.
+
+### 6.1 Pick an engine
+
+| Engine | Online? | Setup needed | Best for |
+|--------|---------|--------------|----------|
+| **WinRT** (`Windows.Media.SpeechRecognition`) | Usually yes (cloud dictation) | English speech pack + Online Speech enabled | Best out-of-the-box quality on Win10/11 with the speech pack installed |
+| **SAPI** (`System.Speech` / SAPI 5.4) | No | Nothing — ships with desktop Windows | The most reliable fallback when WinRT keeps failing; lower accuracy |
+| **Web Speech** (WebView2 + Chromium) | Yes | WebView2 Runtime (preinstalled on Win11) | Matches the macOS shell behavior; great quality, requires internet |
+| **Whisper** (Whisper.NET, neural) | No | Lazy 470 MB model download on first use | Highest offline quality; uses CPU/GPU; ~3 s lag |
+
+Default engine is **WinRT**. Switch with the **Engine** dropdown in the Transcript panel.
+
+### 6.2 Microphone setup (applies to every engine)
+
 1. Open Windows **Settings**.
 2. Go to **Privacy & security → Microphone**.
-3. Turn on:
-   - **Microphone access**
-   - **Let desktop apps access your microphone**
-4. Go to **Time & language → Speech**.
-5. Confirm your speech language is installed. English is recommended.
-6. Run `Yinka.exe`.
-7. Click **Start Windows speech caption** in the **Transcript** panel.
+3. Turn on **Microphone access** and **Let desktop apps access your microphone**.
+4. In the Transcript panel, pick your microphone in the **Mic** dropdown. The horizontal **VU meter** below should turn green when you speak. If it stays dark, the mic is muted, denied, or wrong default.
+5. (Optional) Enable **Push-to-talk** and pick a hold key (default Right Ctrl). Yinka starts listening only while the key is held — useful when you don't want the recognizer always on.
 
-If it works:
+### 6.3 Per-engine setup
 
-- The status changes to **Listening (Windows speech).**
-- The **Listening...** line shows live hypothesis text.
-- Finalized phrases are appended into the transcript.
-- Bible references like `John 3:16` or `Romans chapter 12 verse 1` appear in **Detected references**.
+#### WinRT
 
-If it fails:
+1. Go to **Settings → Time & language → Speech**.
+2. Under **Speech language**, install English (or your language).
+3. Optionally turn on **Online speech recognition** under **Settings → Privacy & security → Speech**. Some Windows builds require this for the dictation topic constraint.
+4. Click **Start speech caption**.
 
-- Check microphone permissions.
-- Check your input device in Settings → System → Sound.
-- Install an English speech pack.
-- Restart Yinka after changing speech settings.
+If the engine fails, Yinka shows a dialog with deep-link buttons that open the right Settings page directly. The dialog also exposes **Open speech log** (`%LOCALAPPDATA%\Yinka\speech.log`) which contains the underlying `compile.Status` so you can pinpoint the exact reason (missing language pack vs. denied privacy vs. mic blocked).
+
+WinRT now **auto-restarts** when the session ends due to silence timeout (this used to require clicking Start again every minute or so).
+
+#### SAPI
+
+No setup required. SAPI is the legacy desktop speech engine that has shipped with every Windows since Vista. If WinRT is uncooperative, switching the **Engine** dropdown to **SAPI** is the fastest path to a working caption.
+
+#### Web Speech (WebView2)
+
+- Win11: nothing to install.
+- Win10: install the **Microsoft Edge WebView2 Runtime** from Microsoft. Yinka detects when it's missing and offers an **Open Microsoft download page** button.
+- Requires internet. Disable Web Speech if you're on a strictly offline machine.
+
+#### Whisper (offline neural)
+
+- On first use Yinka downloads `ggml-small.en.bin` (~470 MB) from Hugging Face into `%LOCALAPPDATA%\Yinka\models\`. Status text shows the download progress.
+- After that, transcription is fully offline.
+- Inference runs in ~3 s windows so the live "Listening…" text updates every few seconds rather than instantly. Quality is the highest of any included engine.
+
+### 6.4 Diagnostics
+
+The **Open log** button in the top bar opens `%LOCALAPPDATA%\Yinka\speech.log`, which records every engine event (start, hypothesis count, results, completion status, exceptions) with timestamps. Send this file along when reporting a speech bug.
 
 ---
 
@@ -329,7 +359,37 @@ Run the build script again:
 
 Then distribute the whole output folder or zip.
 
-### Speech captions do not start
+### Speech captions do not start (any engine)
+
+**First step**: open `%LOCALAPPDATA%\Yinka\speech.log` (the **Open log** button in the top bar opens it for you). The log lines tell you which engine started, the precise compile status / exception, and how often results were produced. Most "doesn't work" cases are obvious from the log.
+
+**Second step**: switch the **Engine** dropdown to **SAPI** and try again. SAPI is the simplest, most permissive engine; if it works, the problem is engine-specific (WinRT setup, missing WebView2, etc.). If even SAPI fails, the issue is at the OS level (mic permission, no input device, or another app holding the device exclusively).
+
+### WinRT-specific failure messages
+
+The WinRT engine surfaces a dialog with a deep-linked button. The mapping from the underlying status to what to do:
+
+| `compile.Status` | What to do |
+|------------------|------------|
+| `TopicLanguageNotSupported` | Install an English speech pack at **Settings → Time & language → Speech** (the dialog button opens this page) |
+| `PrivacyStatementDeclined` | Turn on **Online speech recognition** at **Settings → Privacy & security → Speech** |
+| `UserCanceled` / mic denied | Allow Yinka in **Settings → Privacy & security → Microphone** |
+| `MicrophoneUnavailable` | Plug a mic in and pick it as default in **Settings → System → Sound** |
+| `NetworkError` | You're offline; switch to SAPI or Whisper (both offline) |
+
+### WebView2 engine fails to start
+
+You're missing the Edge WebView2 Runtime. The dialog opens the Microsoft download page; install the Evergreen Runtime and reopen Yinka.
+
+### Whisper takes forever to start
+
+First-time use downloads ~470 MB from Hugging Face. The status bar shows percent complete. After the model is on disk inference starts in seconds. If you killed the download partway, delete `%LOCALAPPDATA%\Yinka\models\ggml-small.en.bin.part` and retry.
+
+### Push-to-talk does nothing
+
+The low-level keyboard hook may be blocked by aggressive antivirus / endpoint protection software. The status bar prints "Push-to-talk could not install the keyboard hook." in that case. Either grant Yinka the right to install hooks in your AV, or just leave push-to-talk off.
+
+### Speech captions do not start (legacy WinRT-only path)
 
 Check:
 
