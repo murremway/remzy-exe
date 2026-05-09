@@ -4,12 +4,12 @@ name: Build
 #   - Windows: native WPF, self-contained Yinka.exe (win-x64 + win-arm64)
 #   - macOS:   web app packaged into Yinka.app
 #
-# On a v*.. tag push, attaches all three zip artifacts to a GitHub Release.
+# On a v*.*.* tag push, attaches all three zip artifacts to a GitHub Release.
 
 on:
   push:
-    branches: [main]
-    #tags: ['v*..']
+    branches: [main, master]
+    #tags: ['v*.*.*']
   # pull_request:
   #   branches: [main, master]
   workflow_dispatch:
@@ -49,7 +49,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.nuget/packages
-          key: nuget-${{ runner.os }}-${{ hashFiles('*/.csproj') }}
+          key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj') }}
           restore-keys: nuget-${{ runner.os }}-
 
       - name: Publish self-contained Yinka.exe
@@ -121,7 +121,7 @@ jobs:
   #         retention-days: 14
 
   # ---------------------------------------------------------------------------
-  # Release: only runs on v*.. tags. Attaches all three zips to the release.
+  # Release: only runs on v*.*.* tags. Attaches all three zips to the release.
   # ---------------------------------------------------------------------------
   release:
     name: GitHub Release

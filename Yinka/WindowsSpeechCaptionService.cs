@@ -34,7 +34,8 @@ public sealed class WindowsSpeechCaptionService : IDisposable
 
         recognizer.ContinuousRecognitionSession.ResultGenerated += OnResultGenerated;
         recognizer.ContinuousRecognitionSession.Completed += OnCompleted;
-        recognizer.ContinuousRecognitionSession.HypothesisGenerated += OnHypothesisGenerated;
+        // HypothesisGenerated lives on SpeechRecognizer itself, NOT on the continuous session.
+        recognizer.HypothesisGenerated += OnHypothesisGenerated;
 
         await recognizer.ContinuousRecognitionSession.StartAsync();
 
@@ -55,7 +56,7 @@ public sealed class WindowsSpeechCaptionService : IDisposable
         {
             r.ContinuousRecognitionSession.ResultGenerated -= OnResultGenerated;
             r.ContinuousRecognitionSession.Completed -= OnCompleted;
-            r.ContinuousRecognitionSession.HypothesisGenerated -= OnHypothesisGenerated;
+            r.HypothesisGenerated -= OnHypothesisGenerated;
         }
         catch
         {
@@ -81,7 +82,7 @@ public sealed class WindowsSpeechCaptionService : IDisposable
         }
     }
 
-    private void OnHypothesisGenerated(SpeechContinuousRecognitionSession sender, SpeechRecognitionHypothesisGeneratedEventArgs args)
+    private void OnHypothesisGenerated(SpeechRecognizer sender, SpeechRecognitionHypothesisGeneratedEventArgs args)
     {
         var t = args.Hypothesis?.Text;
         if (string.IsNullOrWhiteSpace(t))
