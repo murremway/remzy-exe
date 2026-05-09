@@ -81,7 +81,7 @@ public sealed class WindowsSpeechCaptionService : IDisposable
         }
     }
 
-    private void OnHypothesisGenerated(SpeechContinuousRecognitionSession sender, SpeechContinuousRecognitionHypothesisGeneratedEventArgs args)
+    private void OnHypothesisGenerated(SpeechContinuousRecognitionSession sender, SpeechRecognitionHypothesisGeneratedEventArgs args)
     {
         var t = args.Hypothesis?.Text;
         if (string.IsNullOrWhiteSpace(t))

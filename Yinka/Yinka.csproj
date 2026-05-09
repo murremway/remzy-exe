@@ -20,6 +20,16 @@
     <ApplicationIcon>Assets\Yinka.ico</ApplicationIcon>
     <Copyright>Yinka — KJV verse presenter. KJV text is public domain.</Copyright>
   </PropertyGroup>
+  <!--
+    UseWindowsForms=true is enabled only so we can call System.Windows.Forms.Screen.AllScreens
+    for multi-monitor placement (always written fully qualified at the call sites). Suppress the
+    SDK's implicit `using System.Windows.Forms;` and `using System.Drawing;` global usings so
+    they don't collide with WPF types like Application, KeyEventArgs, MessageBox, Color, etc.
+  -->
+  <ItemGroup>
+    <Using Remove="System.Windows.Forms" />
+    <Using Remove="System.Drawing" />
+  </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\Yinka.Core\Yinka.Core.csproj" />
   </ItemGroup>

@@ -1,0 +1,12 @@
+# Build outputs
+dist/
+bin/
+obj/
+
+# macOS
+.DS_Store
+
+# Editor / IDE
+.vs/
+.idea/
+*.swp

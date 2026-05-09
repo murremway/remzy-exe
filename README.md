@@ -211,6 +211,35 @@ Or open **`Yinka.sln`** in Visual Studio and start the **`Yinka`** project. The 
 
 ---
 
+## Continuous integration
+
+Both shells are built on every push and pull request via **`.github/workflows/build.yml`**:
+
+| Job | Runner | Output artifact |
+|-----|--------|-----------------|
+| `Windows win-x64` | `windows-latest` | `Yinka-win-x64.zip` (self-contained Yinka.exe + KJV) |
+| `Windows win-arm64` | `windows-latest` | `Yinka-win-arm64.zip` |
+| `macOS Yinka.app` | `macos-latest` | `Yinka-macOS.zip` (Yinka.app bundle, KJV, custom HTTP server) |
+
+Where to find the builds:
+
+- **Per-commit / per-PR**: open the workflow run from the repo's **Actions** tab → scroll to the **Artifacts** section at the bottom → download the zip.
+- **Manual run**: in the **Actions** tab, pick **Build** → **Run workflow** → choose a branch → **Run**.
+- **Releases**: push a tag like `v1.2.0` (`git tag v1.2.0 && git push origin v1.2.0`). The workflow runs both jobs and then publishes a GitHub Release with all three zips attached and auto-generated release notes.
+
+Local builds use the same scripts as CI:
+
+```bash
+./Yinka.Mac/build.sh                # → dist/Yinka.app
+```
+
+```powershell
+.\build-windows.ps1                 # → dist\windows\Yinka-win-x64\Yinka.exe + .zip
+.\build-windows.ps1 -Runtime win-arm64
+```
+
+---
+
 ## Repository layout
 
 ```
@@ -225,7 +254,10 @@ yinka/
     build.sh              ← assembles dist/Yinka.app
     run.sh                ← dev launcher
   Yinka.sln               ← Yinka.Core + Windows Yinka
-  dist/Yinka.app          ← built output (gitignored)
+  build-windows.ps1       ← builds Yinka.exe (calls dotnet publish)
+  build-windows.cmd       ← double-click wrapper for build-windows.ps1
+  .github/workflows/      ← CI: builds Windows + macOS, releases on v*.*.* tags
+  dist/                   ← built output (gitignored)
 ```
 
 ---
