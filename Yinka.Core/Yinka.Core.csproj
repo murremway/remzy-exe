@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>Yinka</RootNamespace>
+    <AssemblyName>Yinka.Core</AssemblyName>
+    <Description>Shared KJV lookup and reference parsing for Yinka.</Description>
+  </PropertyGroup>
+</Project>

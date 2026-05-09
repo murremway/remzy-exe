@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Yinka — Pewbeam-style verse presenter (macOS)</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-mark">✦</span>
+        <span class="brand-name">Yinka</span>
+        <span class="brand-tag">KJV · macOS · offline</span>
+      </div>
+      <div class="topbar-controls">
+        <div class="seg" role="tablist" aria-label="Display mode">
+          <button class="seg-btn" data-mode="manual" id="modeManualBtn" aria-pressed="true">Manual</button>
+          <button class="seg-btn" data-mode="auto" id="modeAutoBtn" aria-pressed="false">Auto</button>
+        </div>
+        <label class="topbar-field">
+          <span>Theme</span>
+          <select id="themeSelect">
+            <option value="selah">Selah</option>
+            <option value="eden">Eden</option>
+            <option value="obsKey">OBS Chroma Key</option>
+          </select>
+        </label>
+        <label class="topbar-field">
+          <span>Confidence ≥ <output id="confidenceOut">60%</output></span>
+          <input id="confidenceSlider" type="range" min="30" max="95" value="60" step="1" />
+        </label>
+        <label class="topbar-field">
+          <span>Opacity <output id="opacityOut">100%</output></span>
+          <input id="opacitySlider" type="range" min="0" max="100" value="100" step="1" />
+        </label>
+        <label class="topbar-field">
+          <span>
+            Display
+            <button id="detectScreensBtn" class="link-btn" title="Detect connected displays" type="button">refresh</button>
+          </span>
+          <select id="screenSelect">
+            <option value="popup">This window (centered popup)</option>
+          </select>
+        </label>
+        <label class="check check-bold" title="Open the broadcast window in fullscreen on the selected display">
+          <input type="checkbox" id="fullscreenCheck" />
+          <span>Fullscreen</span>
+        </label>
+        <button id="openBroadcastBtn" class="btn primary">Open Broadcast</button>
+        <button id="quitBtn" class="btn ghost" title="Stop the Yinka server and quit the app">Quit Yinka</button>
+      </div>
+    </header>
+
+    <main class="grid">
+      <!-- Live Transcript -->
+      <section class="panel" id="panelTranscript" aria-labelledby="hTranscript">
+        <header class="panel-head">
+          <div class="panel-title">
+            <h2 id="hTranscript">Live Transcript</h2>
+            <span class="muted" id="transcriptStatus">Idle</span>
+          </div>
+          <div class="panel-tools">
+            <div class="meter" id="levelMeter" aria-hidden="true">
+              <div class="meter-fill"></div>
+            </div>
+            <button id="transcribeBtn" class="btn primary">Start Transcribing</button>
+          </div>
+        </header>
+        <div class="panel-body">
+          <div id="transcript" class="transcript" aria-live="polite"></div>
+        </div>
+        <footer class="panel-foot">
+          <button id="sampleBtn" class="btn ghost">Insert sample</button>
+          <button id="clearTranscriptBtn" class="btn ghost">Clear</button>
+          <span class="muted small" id="transcriptHint">L · go live · Tab · switch search · Enter · preview</span>
+        </footer>
+      </section>
+
+      <!-- Preview -->
+      <section class="panel" id="panelPreview" aria-labelledby="hPreview">
+        <header class="panel-head">
+          <div class="panel-title">
+            <h2 id="hPreview">Preview</h2>
+            <span class="muted" id="previewMeta">—</span>
+          </div>
+        </header>
+        <div class="panel-body">
+          <div class="verse-card preview-card" id="previewCard">
+            <div class="verse-empty">No verse selected</div>
+          </div>
+        </div>
+        <footer class="panel-foot">
+          <button id="goLiveBtn" class="btn primary">Go Live (L)</button>
+          <button id="addPreviewToQueueBtn" class="btn ghost">+ Queue</button>
+        </footer>
+      </section>
+
+      <!-- Live Output -->
+      <section class="panel" id="panelLive" aria-labelledby="hLive">
+        <header class="panel-head">
+          <div class="panel-title">
+            <h2 id="hLive">Live Output</h2>
+            <span class="onair" id="onAirBadge" data-on="false">ON AIR</span>
+          </div>
+          <div class="panel-tools">
+            <label class="switch">
+              <input type="checkbox" id="goLiveSync" checked />
+              <span class="switch-track"><span class="switch-thumb"></span></span>
+              <span class="switch-label">Go Live</span>
+            </label>
+          </div>
+        </header>
+        <div class="panel-body">
+          <div class="verse-card live-card" id="liveCard">
+            <div class="verse-empty">Nothing live</div>
+          </div>
+        </div>
+        <footer class="panel-foot">
+          <button id="hideLiveBtn" class="btn ghost">Hide</button>
+          <button id="forceSyncBtn" class="btn ghost">Force Sync</button>
+        </footer>
+      </section>
+
+      <!-- Queue -->
+      <section class="panel" id="panelQueue" aria-labelledby="hQueue">
+        <header class="panel-head">
+          <div class="panel-title">
+            <h2 id="hQueue">Queue</h2>
+            <span class="muted" id="queueMeta">0 verses</span>
+          </div>
+          <div class="panel-tools">
+            <button id="clearQueueBtn" class="btn ghost small">Clear All</button>
+          </div>
+        </header>
+        <div class="panel-body">
+          <ol id="queueList" class="queue-list"></ol>
+        </div>
+      </section>
+
+      <!-- Scripture Search -->
+      <section class="panel wide" id="panelSearch" aria-labelledby="hSearch">
+        <header class="panel-head">
+          <div class="panel-title">
+            <h2 id="hSearch">Scripture Search</h2>
+            <span class="muted" id="searchModeLabel">Book mode · press Tab to switch</span>
+          </div>
+          <div class="panel-tools">
+            <div class="seg" role="tablist" aria-label="Search mode">
+              <button class="seg-btn" data-search="book" id="searchBookBtn" aria-pressed="true">Book</button>
+              <button class="seg-btn" data-search="context" id="searchContextBtn" aria-pressed="false">Context</button>
+            </div>
+          </div>
+        </header>
+        <div class="panel-body">
+          <div class="search-row">
+            <input id="searchBox" type="text" autocomplete="off" placeholder="John 3:16 — or a topic, phrase, paraphrase…" />
+            <button id="searchBtn" class="btn primary">Search</button>
+          </div>
+          <ul id="searchResults" class="result-list" aria-label="Search results"></ul>
+        </div>
+      </section>
+
+      <!-- Detections -->
+      <section class="panel wide" id="panelDetections" aria-labelledby="hDetections">
+        <header class="panel-head">
+          <div class="panel-title">
+            <h2 id="hDetections">Detections</h2>
+            <span class="muted" id="detectionsMeta">0 picked up</span>
+          </div>
+          <div class="panel-tools">
+            <label class="check">
+              <input type="checkbox" id="autoScanCheck" checked />
+              <span>Auto-scan transcript</span>
+            </label>
+          </div>
+        </header>
+        <div class="panel-body">
+          <ol id="detectionsList" class="detections-list"></ol>
+        </div>
+      </section>
+    </main>
+
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+    <script type="module" src="js/app.js"></script>
+  </body>
+</html>

@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Yinka — OBS Window Capture (KJV verse)</title>
+    <link rel="stylesheet" href="broadcast.css" />
+  </head>
+  <body>
+    <main id="stage" class="stage" data-theme="selah">
+      <div class="bg-overlay"></div>
+      <div class="stage-inner">
+        <div id="ref" class="ref"></div>
+        <div id="verse" class="verse">Yinka is ready. Open the control window to send a verse.</div>
+        <div id="translation" class="translation">King James Version</div>
+      </div>
+      <div id="watermark" class="watermark">Yinka · KJV · offline</div>
+      <button id="fullscreenPrompt" class="fs-prompt" type="button" hidden>
+        <span class="fs-prompt-title">Click to enter fullscreen</span>
+        <span class="fs-prompt-sub">Press F to toggle · Esc to exit</span>
+      </button>
+    </main>
+    <script type="module" src="js/broadcast.js"></script>
+  </body>
+</html>

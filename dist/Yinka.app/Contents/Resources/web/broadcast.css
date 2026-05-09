@@ -1,0 +1,115 @@
+/* Broadcast (OBS Window Capture) view. Themed via CSS variables set
+   by js/broadcast.js → js/themes.js. Animated verse transitions a la Pewbeam. */
+
+:root {
+  --bg: #0d1117;
+  --fg: #f0f6fc;
+  --accent: #95d5b2;
+  --ref-color: #b8e0d2;
+  --translation-color: rgba(240,246,252,0.6);
+  --font-verse: "Cormorant Garamond", Georgia, "Times New Roman", serif;
+  --font-ref: -apple-system, BlinkMacSystemFont, "Inter", "Helvetica Neue", sans-serif;
+  --verse-weight: 500;
+  --verse-shadow: 0 4px 24px rgba(0,0,0,0.55);
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; height: 100%; background: black; overflow: hidden; }
+
+.stage {
+  position: relative;
+  width: 100vw; height: 100vh;
+  background: var(--bg);
+  color: var(--fg);
+  display: flex; align-items: center; justify-content: center;
+  padding: 6vh 8vw;
+}
+
+.bg-overlay {
+  position: absolute; inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 80% 100%, rgba(255,255,255,0.06) 0%, transparent 60%),
+    radial-gradient(circle at 0% 0%, rgba(0,0,0,0.25) 0%, transparent 50%);
+  mix-blend-mode: screen;
+}
+
+.stage-inner {
+  position: relative;
+  max-width: 1500px;
+  width: 100%;
+  display: flex; flex-direction: column; gap: 28px;
+  text-align: left;
+}
+
+.ref {
+  font-family: var(--font-ref);
+  font-size: clamp(20px, 2.4vw, 36px);
+  font-weight: 600;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: var(--ref-color);
+  opacity: 0.95;
+}
+
+.verse {
+  font-family: var(--font-verse);
+  font-size: clamp(34px, 4.4vw, 72px);
+  font-weight: var(--verse-weight);
+  line-height: 1.18;
+  color: var(--fg);
+  text-shadow: var(--verse-shadow);
+  white-space: pre-wrap;
+}
+
+.translation {
+  font-family: var(--font-ref);
+  font-size: clamp(13px, 1.1vw, 18px);
+  letter-spacing: 1.6px;
+  text-transform: uppercase;
+  color: var(--translation-color);
+}
+
+.watermark {
+  position: absolute; right: 18px; bottom: 14px;
+  font-family: var(--font-ref);
+  font-size: 12px; color: rgba(255,255,255,0.35);
+  letter-spacing: 0.6px;
+}
+
+/* Pewbeam-style animated transitions */
+.fade-enter { animation: fade-in 360ms cubic-bezier(0.2, 0.7, 0.2, 1) both; }
+.fade-leave { animation: fade-out 220ms ease-in both; }
+
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(14px); filter: blur(6px); }
+  to { opacity: 1; transform: translateY(0); filter: blur(0); }
+}
+@keyframes fade-out {
+  from { opacity: 1; transform: translateY(0); }
+  to { opacity: 0; transform: translateY(-12px); }
+}
+
+.stage.hidden .stage-inner { opacity: 0; }
+.stage[data-theme="obsKey"] .bg-overlay { display: none; }
+.stage[data-theme="obsKey"] .watermark { color: rgba(0,0,0,0.45); }
+
+/* One-click fullscreen overlay (browsers require a user gesture in this
+   window, not its opener, so we surface a giant click target). */
+.fs-prompt {
+  position: absolute; inset: 0;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 8px;
+  background: rgba(0,0,0,0.55);
+  color: #fff;
+  border: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Inter", "Helvetica Neue", sans-serif;
+  cursor: pointer;
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  animation: fade-in 200ms ease both;
+}
+.fs-prompt[hidden] { display: none; }
+.fs-prompt-title { font-size: clamp(20px, 2vw, 30px); font-weight: 600; letter-spacing: 0.5px; }
+.fs-prompt-sub { font-size: clamp(12px, 1vw, 16px); color: rgba(255,255,255,0.65); letter-spacing: 0.6px; text-transform: uppercase; }
+.fs-prompt:hover { background: rgba(0,0,0,0.65); }

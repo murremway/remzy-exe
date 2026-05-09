@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <RootNamespace>Yinka</RootNamespace>
+    <AssemblyName>Yinka</AssemblyName>
+    <Title>Yinka — KJV verse presenter</Title>
+    <Product>Yinka</Product>
+    <Authors>Yinka</Authors>
+    <Company>Yinka</Company>
+    <Description>Offline KJV verse presenter with Windows speech captions and OBS-friendly broadcast output.</Description>
+    <Version>1.0.0</Version>
+    <AssemblyVersion>1.0.0.0</AssemblyVersion>
+    <FileVersion>1.0.0.0</FileVersion>
+    <ApplicationIcon>Assets\Yinka.ico</ApplicationIcon>
+    <Copyright>Yinka — KJV verse presenter. KJV text is public domain.</Copyright>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Yinka.Core\Yinka.Core.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <Content Include="..\Data\en_kjv.json" Link="Data\en_kjv.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+</Project>

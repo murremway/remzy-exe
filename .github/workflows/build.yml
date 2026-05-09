@@ -1,0 +1,150 @@
+name: Build
+
+# Builds both Yinka shells on every push / PR:
+#   - Windows: native WPF, self-contained Yinka.exe (win-x64 + win-arm64)
+#   - macOS:   web app packaged into Yinka.app
+#
+# On a v*.. tag push, attaches all three zip artifacts to a GitHub Release.
+
+on:
+  push:
+    branches: [main]
+    #tags: ['v*..']
+  # pull_request:
+  #   branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: write     # only used by the release job below
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Windows: WPF Yinka.exe (self-contained, no .NET install needed for users)
+  # ---------------------------------------------------------------------------
+  build-windows:
+    name: Windows ${{ matrix.runtime }}
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        runtime: [win-x64, win-arm64]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up .NET 8 SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Show .NET info
+        run: dotnet --info
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('*/.csproj') }}
+          restore-keys: nuget-${{ runner.os }}-
+
+      - name: Publish self-contained Yinka.exe
+        shell: pwsh
+        run: ./build-windows.ps1 -Runtime ${{ matrix.runtime }}
+
+      - name: Verify zip exists
+        shell: pwsh
+        run: |
+          $zip = "dist/windows/Yinka-${{ matrix.runtime }}.zip"
+          if (-not (Test-Path $zip)) { throw "Expected $zip was not produced." }
+          Get-Item $zip | Select-Object FullName, Length
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Yinka-${{ matrix.runtime }}
+          path: dist/windows/Yinka-${{ matrix.runtime }}.zip
+          if-no-files-found: error
+          retention-days: 14
+
+  # ---------------------------------------------------------------------------
+  # macOS: Yinka.app (HTML/CSS/JS dashboard + Python launcher, no .NET)
+  # ---------------------------------------------------------------------------
+  # build-macos:
+  #   name: macOS Yinka.app
+  #   runs-on: macos-latest
+
+  #   steps:
+  #     - name: Checkout
+  #       uses: actions/checkout@v4
+
+  #     - name: Show toolchain
+  #       run: |
+  #         sw_vers
+  #         /usr/bin/python3 --version
+  #         which sips
+  #         which iconutil
+
+  #     - name: Ensure scripts are executable
+  #       run: |
+  #         chmod +x Yinka.Mac/build.sh
+  #         chmod +x Yinka.Mac/run.sh
+  #         chmod +x Yinka.Mac/server/launcher.sh
+  #         chmod +x Yinka.Mac/server/make_icon.py
+  #         chmod +x Yinka.Mac/server/yinka_server.py
+
+  #     - name: Build Yinka.app
+  #       run: ./Yinka.Mac/build.sh
+
+  #     - name: Show bundle layout
+  #       run: |
+  #         ls -la dist/Yinka.app/Contents
+  #         ls -la dist/Yinka.app/Contents/Resources
+  #         du -sh dist/Yinka.app
+
+  #     - name: Zip Yinka.app (preserves bundle bit + xattrs)
+  #       run: |
+  #         cd dist
+  #         /usr/bin/ditto -c -k --sequesterRsrc --keepParent Yinka.app Yinka-macOS.zip
+  #         ls -lh Yinka-macOS.zip
+
+  #     - name: Upload artifact
+  #       uses: actions/upload-artifact@v4
+  #       with:
+  #         name: Yinka-macOS
+  #         path: dist/Yinka-macOS.zip
+  #         if-no-files-found: error
+  #         retention-days: 14
+
+  # ---------------------------------------------------------------------------
+  # Release: only runs on v*.. tags. Attaches all three zips to the release.
+  # ---------------------------------------------------------------------------
+  release:
+    name: GitHub Release
+    #if: startsWith(github.ref, 'refs/tags/v')
+    needs: [build-windows]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: List downloaded artifacts
+        run: find artifacts -type f -print
+
+      - name: Create release & attach zips
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/Yinka-win-x64/Yinka-win-x64.zip
+            artifacts/Yinka-win-arm64/Yinka-win-arm64.zip
+            artifacts/Yinka-macOS/Yinka-macOS.zip
+          generate_release_notes: true
+          draft: false
+          fail_on_unmatched_files: true
