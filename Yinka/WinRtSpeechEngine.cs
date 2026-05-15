@@ -228,15 +228,7 @@ public sealed class WinRtSpeechEngine : ICaptionEngine
                     "Open Microphone privacy"));
                 return;
 
-            case SpeechRecognitionResultStatus.PrivacyStatementDeclined:
-                Fail(new EngineFailure(
-                    "Online speech recognition is turned off.",
-                    "The dictation constraint relies on Microsoft online speech in many setups. Turn it on (or accept the privacy statement) under Settings → Privacy & security → Speech.",
-                    SettingsLinks.OnlineSpeechPrivacy,
-                    "Open Online Speech privacy"));
-                return;
-
-            case SpeechRecognitionResultStatus.NetworkError:
+            case SpeechRecognitionResultStatus.NetworkFailure:
                 Fail(new EngineFailure(
                     "Couldn't reach the Microsoft online speech service.",
                     "Check your internet connection. If you have an English speech pack installed, you can also switch the engine to SAPI for fully offline recognition.",
@@ -254,10 +246,24 @@ public sealed class WinRtSpeechEngine : ICaptionEngine
                     "Open Microphone privacy"));
                 return;
 
+            case SpeechRecognitionResultStatus.AudioQualityFailure:
+                Fail(new EngineFailure(
+                    "Microphone audio quality is too poor for dictation.",
+                    "Try a different microphone, move closer, or reduce background noise. You can also switch to the SAPI engine which is more tolerant of low-quality audio.",
+                    SettingsLinks.SoundDevices,
+                    "Open Sound devices"));
+                return;
+
+            // Unknown / GrammarLanguageMismatch / GrammarCompilationFailure / etc. don't have
+            // dedicated enum values for "online speech is off" or "privacy statement declined" —
+            // those typically present as Unknown. Surface a generic message that points at the
+            // most likely fix (online speech privacy) plus a secondary link to Speech settings.
             default:
                 Fail(new EngineFailure(
                     "Speech constraints failed to compile.",
-                    "Status: " + status + "\n\nOpen Windows Speech settings, ensure online speech is on (or a language pack is installed), then try again.",
+                    $"Status: {status}\n\nThe most common causes are 'Online speech recognition' being off in Privacy settings, or no English speech pack installed. If neither applies, switch to the SAPI engine for an offline fallback.",
+                    SettingsLinks.OnlineSpeechPrivacy,
+                    "Open Online Speech privacy",
                     SettingsLinks.SpeechPage,
                     "Open Speech settings"));
                 return;

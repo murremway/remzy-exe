@@ -60,6 +60,87 @@ public sealed class KjvBibleStore
         }
     }
 
+    /// <summary>Canonical 66-book order in the same shape used by the Bible reader UI.</summary>
+    private static readonly string[] CanonicalAbbrev =
+    {
+        "gn","ex","lv","nm","dt","js","jud","rt","1sm","2sm","1kgs","2kgs","1ch","2ch","ezr","ne","et",
+        "job","ps","prv","ec","so","is","jr","lm","ez","dn","ho","jl","am","ob","jn","mi","na","hk","zp","hg","zc","ml",
+        "mt","mk","lk","jo","act","rm","1co","2co","gl","eph","ph","cl","1ts","2ts","1tm","2tm","tt","phm","hb","jm","1pe","2pe","1jo","2jo","3jo","jd","re",
+    };
+
+    /// <summary>Number of books considered Old Testament in canonical order.</summary>
+    public const int OldTestamentBookCount = 39;
+
+    /// <summary>Returns metadata for every loaded canonical book in canonical order.</summary>
+    public IReadOnlyList<BookInfo> ListBooks()
+    {
+        var slugByAbbrev = _slugToAbbrev
+            .GroupBy(kv => kv.Value, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => g.First().Key, StringComparer.OrdinalIgnoreCase);
+
+        var list = new List<BookInfo>(66);
+        for (var i = 0; i < CanonicalAbbrev.Length; i++)
+        {
+            var abbrev = CanonicalAbbrev[i];
+            if (!_booksByAbbrev.TryGetValue(abbrev, out var chapters))
+                continue;
+            slugByAbbrev.TryGetValue(abbrev, out var slug);
+            list.Add(new BookInfo(
+                Slug: slug ?? abbrev,
+                Abbrev: abbrev,
+                Name: TitleFromAbbrev(abbrev),
+                ChapterCount: chapters.Count,
+                IsOldTestament: i < OldTestamentBookCount));
+        }
+        return list;
+    }
+
+    /// <summary>Cleaned verses for a given book/chapter (1-indexed), or empty if unknown.</summary>
+    public IReadOnlyList<string> ChapterVerses(string slugOrAbbrev, int chapter)
+    {
+        if (string.IsNullOrWhiteSpace(slugOrAbbrev))
+            return Array.Empty<string>();
+
+        if (!_slugToAbbrev.TryGetValue(slugOrAbbrev, out var abbrev))
+            abbrev = slugOrAbbrev; // assume already an abbrev
+
+        if (!_booksByAbbrev.TryGetValue(abbrev, out var chapters))
+            return Array.Empty<string>();
+
+        var idx = chapter - 1;
+        if (idx < 0 || idx >= chapters.Count)
+            return Array.Empty<string>();
+
+        return chapters[idx].Select(CleanVerseText).ToList();
+    }
+
+    /// <summary>Build a multi-verse payload directly (used by the Bible reader's range selection).</summary>
+    public VersePayload? BuildRangePayload(string slugOrAbbrev, int chapter, int verseStart, int verseEnd)
+    {
+        var verses = ChapterVerses(slugOrAbbrev, chapter);
+        if (verses.Count == 0)
+            return null;
+
+        var lo = Math.Max(1, Math.Min(verseStart, verseEnd));
+        var hi = Math.Min(verses.Count, Math.Max(verseStart, verseEnd));
+        if (lo > hi)
+            return null;
+
+        if (!_slugToAbbrev.TryGetValue(slugOrAbbrev, out var abbrev))
+            abbrev = slugOrAbbrev;
+
+        var bookName = TitleFromAbbrev(abbrev);
+        var refLabel = lo == hi
+            ? $"{bookName} {chapter}:{lo}"
+            : $"{bookName} {chapter}:{lo}-{hi}";
+
+        var pieces = new List<string>(hi - lo + 1);
+        for (var v = lo; v <= hi; v++)
+            pieces.Add(verses[v - 1]);
+
+        return new VersePayload(refLabel, string.Join(" ", pieces), "kjv", "King James Version");
+    }
+
     public VersePayload? GetPassage(ParsedReference reference)
     {
         if (!IsLoaded)
@@ -166,3 +247,9 @@ public sealed class KjvBibleStore
 }
 
 public sealed record VersePayload(string Reference, string Text, string TranslationId, string TranslationName);
+
+/// <summary>Lightweight metadata for a canonical book exposed by <see cref="KjvBibleStore.ListBooks"/>.</summary>
+public sealed record BookInfo(string Slug, string Abbrev, string Name, int ChapterCount, bool IsOldTestament)
+{
+    public override string ToString() => Name;
+}

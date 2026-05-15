@@ -51,6 +51,22 @@ export const THEMES = {
       "--verse-shadow": "none",
     },
   },
+  pulpit: {
+    id: "pulpit",
+    name: "Pulpit (Projector)",
+    description: "Pure black with large gold reference — designed for projectors and TVs as the secondary display",
+    vars: {
+      "--bg": "#000000",
+      "--fg": "#FFFFFF",
+      "--accent": "#E8C77A",
+      "--ref-color": "#E8C77A",
+      "--translation-color": "rgba(255,255,255,0.45)",
+      "--font-verse": "'Cormorant Garamond', Georgia, 'Times New Roman', serif",
+      "--font-ref": "'Inter', -apple-system, BlinkMacSystemFont, sans-serif",
+      "--verse-weight": "500",
+      "--verse-shadow": "0 6px 32px rgba(0,0,0,0.85)",
+    },
+  },
 };
 
 export function applyTheme(rootEl, themeId) {

@@ -21,8 +21,9 @@
         <label class="topbar-field">
           <span>Theme</span>
           <select id="themeSelect">
-            <option value="selah">Selah</option>
-            <option value="eden">Eden</option>
+            <option value="selah">Selah (warm dark)</option>
+            <option value="eden">Eden (green gradient)</option>
+            <option value="pulpit">Pulpit (projector)</option>
             <option value="obsKey">OBS Chroma Key</option>
           </select>
         </label>
@@ -43,11 +44,14 @@
             <option value="popup">This window (centered popup)</option>
           </select>
         </label>
-        <label class="check check-bold" title="Open the broadcast window in fullscreen on the selected display">
+        <label class="check check-bold" title="Open the secondary display fullscreen on the selected display">
           <input type="checkbox" id="fullscreenCheck" />
           <span>Fullscreen</span>
         </label>
-        <button id="openBroadcastBtn" class="btn primary">Open Broadcast</button>
+        <button id="openBroadcastBtn" class="btn primary"
+                title="Pop out the live verse to a separate window. Drag it to your second monitor or use the Display picker.">
+          Open Secondary Display
+        </button>
         <button id="quitBtn" class="btn ghost" title="Stop the Yinka server and quit the app">Quit Yinka</button>
       </div>
     </header>
@@ -104,6 +108,10 @@
             <span class="onair" id="onAirBadge" data-on="false">ON AIR</span>
           </div>
           <div class="panel-tools">
+            <button id="popoutLiveBtn" class="btn ghost small"
+                    title="Pop out the live verse into a separate window so you can drag it to a second monitor / projector">
+              Pop out ↗
+            </button>
             <label class="switch">
               <input type="checkbox" id="goLiveSync" checked />
               <span class="switch-track"><span class="switch-thumb"></span></span>
@@ -117,6 +125,17 @@
           </div>
         </div>
         <footer class="panel-foot">
+          <label class="live-target-field">
+            <span>Target display</span>
+            <select id="liveScreenSelect">
+              <option value="popup">This window (centered popup)</option>
+            </select>
+          </label>
+          <button id="liveDetectScreensBtn" class="btn ghost small" title="Detect connected displays">Detect displays</button>
+          <label class="check compact" title="Open the selected display fullscreen">
+            <input type="checkbox" id="liveFullscreenCheck" />
+            <span>Fullscreen</span>
+          </label>
           <button id="hideLiveBtn" class="btn ghost">Hide</button>
           <button id="forceSyncBtn" class="btn ghost">Force Sync</button>
         </footer>
@@ -177,6 +196,74 @@
         </header>
         <div class="panel-body">
           <ol id="detectionsList" class="detections-list"></ol>
+        </div>
+      </section>
+
+      <!-- Public-domain Hymns -->
+      <section class="panel wide hymns-panel" id="panelHymns" aria-labelledby="hHymns">
+        <header class="panel-head">
+          <div class="panel-title">
+            <h2 id="hHymns">Open Hymns</h2>
+            <span class="muted" id="hymnMeta">Public-domain hymns · offline</span>
+          </div>
+          <div class="panel-tools">
+            <input id="hymnSearch" type="search" autocomplete="off"
+                   placeholder="Search hymns: grace, holy, assurance..."
+                   class="hymn-search" />
+            <button id="hymnDisplayAllBtn" class="btn ghost small" disabled>Display whole hymn</button>
+            <button id="hymnQueueAllBtn" class="btn ghost small" disabled>+ Queue whole hymn</button>
+          </div>
+        </header>
+        <div class="panel-body hymns-body">
+          <aside class="hymn-results-wrap" aria-label="Hymn list">
+            <ul id="hymnResults" class="hymn-results"></ul>
+          </aside>
+          <section class="hymn-stanzas-wrap" aria-label="Hymn stanzas">
+            <div class="hymn-stanzas-head">
+              <span id="hymnTitle" class="muted">Pick a hymn to see stanzas</span>
+              <span class="muted small">Click a stanza to preview · double-click to display</span>
+            </div>
+            <ol id="hymnStanzas" class="hymn-stanzas"></ol>
+          </section>
+        </div>
+      </section>
+
+      <!-- KJV Bible Reader -->
+      <section class="panel wide bible-panel" id="panelBible" aria-labelledby="hBible">
+        <header class="panel-head">
+          <div class="panel-title">
+            <h2 id="hBible">KJV Bible</h2>
+            <span class="muted" id="bibleMeta">Pick a book → chapter → verse</span>
+          </div>
+          <div class="panel-tools">
+            <input id="bibleQuickJump" type="text" autocomplete="off"
+                   placeholder="Jump to: John 3:16  /  Ps 23  /  Rev"
+                   class="bible-quick-jump" />
+            <button id="bibleClearSelectionBtn" class="btn ghost small" hidden>Clear range</button>
+            <button id="biblePresentRangeBtn" class="btn ghost small" hidden>Display range</button>
+            <button id="bibleQueueRangeBtn" class="btn ghost small" hidden>+ Queue range</button>
+          </div>
+        </header>
+        <div class="panel-body bible-body">
+          <aside class="bible-books" aria-label="Books">
+            <div class="bible-section-label">Old Testament</div>
+            <ul id="bibleBooksOT" class="bible-book-list"></ul>
+            <div class="bible-section-label">New Testament</div>
+            <ul id="bibleBooksNT" class="bible-book-list"></ul>
+          </aside>
+          <section class="bible-chapters" aria-label="Chapters">
+            <div class="bible-chapters-head">
+              <span id="bibleChaptersTitle" class="muted">Pick a book to see chapters</span>
+            </div>
+            <div id="bibleChapterGrid" class="chapter-grid"></div>
+          </section>
+          <section class="bible-verses" aria-label="Verses">
+            <div class="bible-verses-head">
+              <span id="bibleVersesTitle" class="muted">Pick a chapter to read verses</span>
+              <span class="muted small" id="bibleSelectionHint">Click a verse to preview · Shift-click to select a range</span>
+            </div>
+            <ol id="bibleVerseList" class="bible-verse-list"></ol>
+          </section>
         </div>
       </section>
     </main>

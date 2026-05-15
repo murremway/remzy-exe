@@ -94,6 +94,24 @@ html, body { margin: 0; padding: 0; height: 100%; background: black; overflow: h
 .stage[data-theme="obsKey"] .bg-overlay { display: none; }
 .stage[data-theme="obsKey"] .watermark { color: rgba(0,0,0,0.45); }
 
+/* Pulpit (projector) theme — center-stage, larger verse, hide watermark
+   so the second monitor reads as a clean slide. */
+.stage[data-theme="pulpit"] { padding: 8vh 10vw; }
+.stage[data-theme="pulpit"] .bg-overlay { display: none; }
+.stage[data-theme="pulpit"] .stage-inner {
+  text-align: center;
+  align-items: center;
+  gap: 36px;
+}
+.stage[data-theme="pulpit"] .ref { font-size: clamp(24px, 2.8vw, 44px); letter-spacing: 1.2px; }
+.stage[data-theme="pulpit"] .verse {
+  font-size: clamp(40px, 5.4vw, 96px);
+  line-height: 1.22;
+  letter-spacing: 0.2px;
+}
+.stage[data-theme="pulpit"] .translation { font-size: clamp(11px, 0.95vw, 16px); }
+.stage[data-theme="pulpit"] .watermark { display: none; }
+
 /* One-click fullscreen overlay (browsers require a user gesture in this
    window, not its opener, so we surface a giant click target). */
 .fs-prompt {

@@ -26,6 +26,15 @@ public partial class MainWindow : Window
     private VersePayload? _previewPayload;
     private bool _suppressPersist = true;
 
+    // Bible reader state
+    private BookInfo? _bibleActiveBook;
+    private int _bibleActiveChapter;
+    private int? _bibleRangeStart;
+    private int? _bibleRangeEnd;
+
+    // Hymns state
+    private Hymn? _hymnActive;
+
     public MainWindow()
     {
         InitializeComponent();
@@ -87,6 +96,8 @@ public partial class MainWindow : Window
         }
 
         SetStatus("KJV ready (fully offline).");
+        PopulateBibleBooks();
+        PopulateHymns();
     }
 
     protected override void OnClosing(CancelEventArgs e)
@@ -653,5 +664,331 @@ public partial class MainWindow : Window
     private sealed record PushToTalkOption(int Vk, string Label)
     {
         public override string ToString() => Label;
+    }
+
+    // ===========================================================================
+    //                            Bible reader
+    // ===========================================================================
+
+    private void PopulateBibleBooks()
+    {
+        if (!_kjv.IsLoaded) return;
+        var books = _kjv.ListBooks();
+        BibleBooksOtList.Items.Clear();
+        BibleBooksNtList.Items.Clear();
+        foreach (var b in books)
+        {
+            if (b.IsOldTestament)
+                BibleBooksOtList.Items.Add(b);
+            else
+                BibleBooksNtList.Items.Add(b);
+        }
+    }
+
+    private void BibleBooksList_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (sender is not ListBox lb || lb.SelectedItem is not BookInfo book)
+            return;
+
+        // Mutual exclusion across the two book lists.
+        if (ReferenceEquals(lb, BibleBooksOtList))
+            BibleBooksNtList.SelectedItem = null;
+        else
+            BibleBooksOtList.SelectedItem = null;
+
+        SelectBibleBook(book);
+    }
+
+    private void SelectBibleBook(BookInfo book)
+    {
+        _bibleActiveBook = book;
+        _bibleActiveChapter = 0;
+        _bibleRangeStart = null;
+        _bibleRangeEnd = null;
+
+        BibleChaptersTitle.Text = $"{book.Name} · {book.ChapterCount} chapters";
+        BibleChaptersGrid.Items.Clear();
+        for (var c = 1; c <= book.ChapterCount; c++)
+        {
+            var chapterNum = c;
+            var btn = new Button
+            {
+                Content = c.ToString(),
+                Width = 36,
+                Height = 30,
+                Margin = new Thickness(2),
+                Padding = new Thickness(0),
+                Tag = chapterNum,
+                ToolTip = $"{book.Name} {c}",
+            };
+            btn.Click += (_, _) => SelectBibleChapter(chapterNum);
+            BibleChaptersGrid.Items.Add(btn);
+        }
+        BibleVersesList.Items.Clear();
+        BibleVersesTitle.Text = $"{book.Name} · pick a chapter";
+        UpdateBibleSelectionButtons();
+
+        if (book.ChapterCount > 0)
+            SelectBibleChapter(1);
+    }
+
+    private void SelectBibleChapter(int chapter)
+    {
+        if (_bibleActiveBook is null) return;
+        var verses = _kjv.ChapterVerses(_bibleActiveBook.Slug, chapter);
+        if (verses.Count == 0)
+        {
+            SetStatus("Chapter not found.");
+            return;
+        }
+        _bibleActiveChapter = chapter;
+        _bibleRangeStart = null;
+        _bibleRangeEnd = null;
+
+        BibleVersesTitle.Text = $"{_bibleActiveBook.Name} {chapter} · {verses.Count} verses";
+        BibleVersesList.Items.Clear();
+        for (var i = 0; i < verses.Count; i++)
+            BibleVersesList.Items.Add(new BibleVerseRow(i + 1, verses[i]));
+
+        UpdateBibleSelectionButtons();
+    }
+
+    private void BibleVersesList_PreviewMouseDown(object sender, MouseButtonEventArgs e)
+    {
+        // Find the row that was clicked.
+        var dep = (DependencyObject?)e.OriginalSource;
+        while (dep is not null and not ListBoxItem)
+            dep = VisualTreeHelper.GetParent(dep);
+        if (dep is not ListBoxItem item)
+            return;
+        if (item.DataContext is not BibleVerseRow row)
+            return;
+
+        if (Keyboard.Modifiers.HasFlag(ModifierKeys.Shift) && _bibleRangeStart is not null)
+        {
+            _bibleRangeEnd = row.Number;
+        }
+        else
+        {
+            _bibleRangeStart = row.Number;
+            _bibleRangeEnd = row.Number;
+        }
+
+        // Sync the UI selection without losing our shift handling.
+        BibleVersesList.SelectedItem = row;
+        e.Handled = true;
+
+        UpdateBibleSelectionButtons();
+        // Single-verse → also push to preview immediately.
+        var lo = Math.Min(_bibleRangeStart!.Value, _bibleRangeEnd!.Value);
+        var hi = Math.Max(_bibleRangeStart!.Value, _bibleRangeEnd!.Value);
+        if (lo == hi)
+        {
+            var payload = _kjv.BuildRangePayload(_bibleActiveBook!.Slug, _bibleActiveChapter, lo, hi);
+            if (payload is not null)
+                ApplyPayloadToPreview(payload);
+        }
+    }
+
+    private void BibleVersesList_MouseDoubleClick(object sender, MouseButtonEventArgs e)
+    {
+        if (BibleVersesList.SelectedItem is not BibleVerseRow row)
+            return;
+        if (_bibleActiveBook is null || _bibleActiveChapter == 0)
+            return;
+        var payload = _kjv.BuildRangePayload(_bibleActiveBook.Slug, _bibleActiveChapter, row.Number, row.Number);
+        if (payload is null)
+            return;
+        ApplyPayloadToPreview(payload);
+        GoLive_Click(sender, e);
+    }
+
+    private void BiblePresent_Click(object sender, RoutedEventArgs e)
+    {
+        var payload = CurrentBibleSelectionPayload();
+        if (payload is null) return;
+        ApplyPayloadToPreview(payload);
+        GoLive_Click(sender, e);
+    }
+
+    private void BibleQueue_Click(object sender, RoutedEventArgs e)
+    {
+        var payload = CurrentBibleSelectionPayload();
+        if (payload is null) return;
+        if (_queue.Any(q => q.Reference == payload.Reference && q.Text == payload.Text))
+        {
+            SetStatus("Already in queue.");
+            return;
+        }
+        _queue.Add(payload);
+        SetStatus("Added to queue.");
+    }
+
+    private void BibleClearSelection_Click(object sender, RoutedEventArgs e)
+    {
+        _bibleRangeStart = null;
+        _bibleRangeEnd = null;
+        BibleVersesList.SelectedItem = null;
+        UpdateBibleSelectionButtons();
+    }
+
+    private VersePayload? CurrentBibleSelectionPayload()
+    {
+        if (_bibleActiveBook is null || _bibleActiveChapter == 0 || _bibleRangeStart is null)
+        {
+            SetStatus("Select a verse first.");
+            return null;
+        }
+        return _kjv.BuildRangePayload(
+            _bibleActiveBook.Slug,
+            _bibleActiveChapter,
+            _bibleRangeStart.Value,
+            _bibleRangeEnd ?? _bibleRangeStart.Value);
+    }
+
+    private void UpdateBibleSelectionButtons()
+    {
+        var has = _bibleRangeStart is not null && _bibleActiveBook is not null && _bibleActiveChapter > 0;
+        BiblePresentBtn.IsEnabled = has;
+        BibleQueueBtn.IsEnabled = has;
+        BibleClearSelectionBtn.IsEnabled = has;
+        if (has)
+        {
+            var lo = Math.Min(_bibleRangeStart!.Value, _bibleRangeEnd ?? _bibleRangeStart.Value);
+            var hi = Math.Max(_bibleRangeStart!.Value, _bibleRangeEnd ?? _bibleRangeStart.Value);
+            var count = hi - lo + 1;
+            BiblePresentBtn.Content = count > 1 ? $"Display range ({count})" : "Display verse";
+            BibleQueueBtn.Content = count > 1 ? $"+ Queue range ({count})" : "+ Queue verse";
+        }
+        else
+        {
+            BiblePresentBtn.Content = "Display selection";
+            BibleQueueBtn.Content = "+ Queue selection";
+        }
+    }
+
+    private sealed record BibleVerseRow(int Number, string Text);
+
+    // ===========================================================================
+    //                            Hymns
+    // ===========================================================================
+
+    private void PopulateHymns()
+    {
+        HymnList.Items.Clear();
+        foreach (var h in Hymns.All)
+            HymnList.Items.Add(new HymnRow(h));
+    }
+
+    private void HymnSearchBox_TextChanged(object sender, System.Windows.Controls.TextChangedEventArgs e)
+    {
+        var matches = Hymns.Search(HymnSearchBox.Text);
+        HymnList.Items.Clear();
+        foreach (var h in matches)
+            HymnList.Items.Add(new HymnRow(h));
+    }
+
+    private void HymnList_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (HymnList.SelectedItem is not HymnRow row)
+        {
+            _hymnActive = null;
+            HymnTitle.Text = "Pick a hymn";
+            HymnStanzaList.Items.Clear();
+            UpdateHymnButtons();
+            return;
+        }
+        var hymn = row.Hymn;
+        _hymnActive = hymn;
+        HymnTitle.Text = $"{hymn.Title} · {hymn.Author} ({hymn.Year}) · {hymn.License}";
+        HymnStanzaList.Items.Clear();
+        for (var i = 0; i < hymn.Stanzas.Count; i++)
+            HymnStanzaList.Items.Add(new HymnStanzaRow($"S{i + 1}", i + 1, hymn.Stanzas[i]));
+        if (HymnStanzaList.Items.Count > 0)
+            HymnStanzaList.SelectedIndex = 0;
+        UpdateHymnButtons();
+    }
+
+    private void HymnStanzaList_MouseDoubleClick(object sender, MouseButtonEventArgs e)
+    {
+        if (_hymnActive is null || HymnStanzaList.SelectedItem is not HymnStanzaRow row)
+            return;
+        var payload = Hymns.BuildPayload(_hymnActive, row.Number, row.Number);
+        ApplyPayloadToPreview(payload);
+        GoLive_Click(sender, e);
+    }
+
+    private void HymnPresentStanza_Click(object sender, RoutedEventArgs e)
+    {
+        if (_hymnActive is null || HymnStanzaList.SelectedItem is not HymnStanzaRow row)
+        {
+            SetStatus("Pick a hymn and stanza first.");
+            return;
+        }
+        var payload = Hymns.BuildPayload(_hymnActive, row.Number, row.Number);
+        ApplyPayloadToPreview(payload);
+        GoLive_Click(sender, e);
+    }
+
+    private void HymnQueueStanza_Click(object sender, RoutedEventArgs e)
+    {
+        if (_hymnActive is null || HymnStanzaList.SelectedItem is not HymnStanzaRow row)
+        {
+            SetStatus("Pick a hymn and stanza first.");
+            return;
+        }
+        var payload = Hymns.BuildPayload(_hymnActive, row.Number, row.Number);
+        QueueIfNew(payload);
+    }
+
+    private void HymnPresentAll_Click(object sender, RoutedEventArgs e)
+    {
+        if (_hymnActive is null)
+        {
+            SetStatus("Pick a hymn first.");
+            return;
+        }
+        var payload = Hymns.BuildWholeHymnPayload(_hymnActive);
+        ApplyPayloadToPreview(payload);
+        GoLive_Click(sender, e);
+    }
+
+    private void HymnQueueAll_Click(object sender, RoutedEventArgs e)
+    {
+        if (_hymnActive is null)
+        {
+            SetStatus("Pick a hymn first.");
+            return;
+        }
+        QueueIfNew(Hymns.BuildWholeHymnPayload(_hymnActive));
+    }
+
+    private void QueueIfNew(VersePayload payload)
+    {
+        if (_queue.Any(q => q.Reference == payload.Reference && q.Text == payload.Text))
+        {
+            SetStatus("Already in queue.");
+            return;
+        }
+        _queue.Add(payload);
+        SetStatus("Added to queue.");
+    }
+
+    private void UpdateHymnButtons()
+    {
+        var has = _hymnActive is not null;
+        HymnPresentStanzaBtn.IsEnabled = has;
+        HymnQueueStanzaBtn.IsEnabled = has;
+        HymnPresentAllBtn.IsEnabled = has;
+        HymnQueueAllBtn.IsEnabled = has;
+    }
+
+    private sealed record HymnStanzaRow(string Label, int Number, string Text);
+
+    private sealed record HymnRow(Hymn Hymn)
+    {
+        public string Title => Hymn.Title;
+        public string Subtitle => $"{Hymn.Author} · {Hymn.Year} · {Hymn.License}";
+        public override string ToString() => Hymn.Title;
     }
 }

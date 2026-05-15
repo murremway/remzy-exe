@@ -4,7 +4,8 @@
 
 import { findReferences } from "./parser.js";
 import { kjvStore } from "./store.js";
-import { resolveBookQuery, contextSearch } from "./search.js";
+import { resolveBookQuery, contextSearch, resolveBookSlug } from "./search.js";
+import { HYMNS, searchHymns } from "./hymns.js";
 import {
   createTranscriber,
   isSpeechSupported,
@@ -31,6 +32,9 @@ const els = {
   liveCard: $("liveCard"),
   goLiveSync: $("goLiveSync"),
   onAirBadge: $("onAirBadge"),
+  liveScreenSelect: $("liveScreenSelect"),
+  liveDetectScreensBtn: $("liveDetectScreensBtn"),
+  liveFullscreenCheck: $("liveFullscreenCheck"),
   hideLiveBtn: $("hideLiveBtn"),
   forceSyncBtn: $("forceSyncBtn"),
 
@@ -57,10 +61,33 @@ const els = {
   modeManualBtn: $("modeManualBtn"),
   modeAutoBtn: $("modeAutoBtn"),
   openBroadcastBtn: $("openBroadcastBtn"),
+  popoutLiveBtn: $("popoutLiveBtn"),
   screenSelect: $("screenSelect"),
   detectScreensBtn: $("detectScreensBtn"),
   fullscreenCheck: $("fullscreenCheck"),
   quitBtn: $("quitBtn"),
+
+  // Bible Reader
+  bibleMeta: $("bibleMeta"),
+  bibleBooksOT: $("bibleBooksOT"),
+  bibleBooksNT: $("bibleBooksNT"),
+  bibleChaptersTitle: $("bibleChaptersTitle"),
+  bibleChapterGrid: $("bibleChapterGrid"),
+  bibleVersesTitle: $("bibleVersesTitle"),
+  bibleVerseList: $("bibleVerseList"),
+  bibleQuickJump: $("bibleQuickJump"),
+  bibleClearSelectionBtn: $("bibleClearSelectionBtn"),
+  biblePresentRangeBtn: $("biblePresentRangeBtn"),
+  bibleQueueRangeBtn: $("bibleQueueRangeBtn"),
+
+  // Hymns
+  hymnMeta: $("hymnMeta"),
+  hymnSearch: $("hymnSearch"),
+  hymnResults: $("hymnResults"),
+  hymnTitle: $("hymnTitle"),
+  hymnStanzas: $("hymnStanzas"),
+  hymnDisplayAllBtn: $("hymnDisplayAllBtn"),
+  hymnQueueAllBtn: $("hymnQueueAllBtn"),
 
   toast: $("toast"),
 };
@@ -93,6 +120,17 @@ const state = {
   selectedScreenKey: settings.selectedScreenKey || "popup",
   fullscreenBroadcast: settings.fullscreenBroadcast === true,
   screenDetails: null,
+  // Bible reader
+  bible: {
+    activeBookSlug: settings.bibleBookSlug || null,
+    activeChapter: settings.bibleChapter || null,
+    rangeStart: null, // 1-indexed verse number
+    rangeEnd: null,
+  },
+  hymn: {
+    activeId: settings.hymnId || null,
+    activeStanza: settings.hymnStanza || null,
+  },
 };
 
 const AUTO_COOLDOWN_MS = 2500;
@@ -103,11 +141,21 @@ async function boot() {
   if (!kjvStore.loaded) {
     toast(`KJV failed to load: ${kjvStore.error ?? "unknown error"}`);
   } else {
-    toast("KJV ready (offline). Press Start Transcribing or paste a transcript.");
+    toast("KJV ready (offline). Press Start Transcribing or open the Bible panel below.");
   }
   hydrateUiFromState();
   bindEvents();
   refreshAll();
+  paintHymnResults(HYMNS);
+  if (state.hymn.activeId) selectHymn(state.hymn.activeId, /*silent*/ true);
+  paintBibleBooks();
+  // Restore last viewed book/chapter, if any.
+  if (state.bible.activeBookSlug) {
+    selectBook(state.bible.activeBookSlug, /*silent*/ true);
+    if (state.bible.activeChapter) {
+      selectChapter(state.bible.activeChapter, /*silent*/ true);
+    }
+  }
   // If the Window Management permission was previously granted, populate
   // the display dropdown silently. Otherwise the user clicks "refresh" to prompt.
   maybeAutoDetectScreens();
@@ -134,6 +182,7 @@ function hydrateUiFromState() {
   els.opacityOut.textContent = `${els.opacitySlider.value}%`;
   els.goLiveSync.checked = state.goLive;
   els.fullscreenCheck.checked = state.fullscreenBroadcast;
+  els.liveFullscreenCheck.checked = state.fullscreenBroadcast;
   setSearchMode(state.searchMode, /*announce*/ false);
   setDisplayMode(state.displayMode, /*announce*/ false);
   setOnAir(state.goLive && !!state.live);
@@ -255,22 +304,77 @@ function bindEvents() {
   els.modeManualBtn.addEventListener("click", () => setDisplayMode("manual"));
   els.modeAutoBtn.addEventListener("click", () => setDisplayMode("auto"));
   els.openBroadcastBtn.addEventListener("click", openBroadcastWindow);
+  els.popoutLiveBtn.addEventListener("click", openBroadcastWindow);
+
+  // Bible reader -------------------------------------------------------------
+  els.bibleQuickJump.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      bibleQuickJump(els.bibleQuickJump.value);
+    } else if (e.key === "Escape") {
+      els.bibleQuickJump.blur();
+    }
+  });
+  els.bibleClearSelectionBtn.addEventListener("click", clearBibleRange);
+  els.biblePresentRangeBtn.addEventListener("click", () => {
+    const p = bibleRangePayload();
+    if (!p) return;
+    setPreview(p);
+    setLive(p, {});
+    toast(`Now displaying ${p.reference}.`);
+  });
+  els.bibleQueueRangeBtn.addEventListener("click", () => {
+    const p = bibleRangePayload();
+    if (!p) return;
+    enqueue(p);
+  });
+
+  // Hymns --------------------------------------------------------------------
+  els.hymnSearch.addEventListener("input", () => {
+    paintHymnResults(searchHymns(els.hymnSearch.value));
+  });
+  els.hymnSearch.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      const first = searchHymns(els.hymnSearch.value)[0];
+      if (first) selectHymn(first.id);
+    } else if (e.key === "Escape") {
+      els.hymnSearch.value = "";
+      paintHymnResults(HYMNS);
+      els.hymnSearch.blur();
+    }
+  });
+  els.hymnDisplayAllBtn.addEventListener("click", () => {
+    const p = activeHymnPayload("all");
+    if (!p) return;
+    setPreview(p);
+    setLive(p, {});
+  });
+  els.hymnQueueAllBtn.addEventListener("click", () => {
+    const p = activeHymnPayload("all");
+    if (!p) return;
+    enqueue(p);
+  });
 
   els.screenSelect.addEventListener("change", () => {
-    state.selectedScreenKey = els.screenSelect.value;
-    persist();
-    if (state.broadcastOpen && state.selectedScreenKey !== "popup") {
-      sendPlacement();
-    }
+    setSelectedScreenKey(els.screenSelect.value);
+  });
+  els.liveScreenSelect.addEventListener("change", () => {
+    setSelectedScreenKey(els.liveScreenSelect.value);
   });
   els.detectScreensBtn.addEventListener("click", (e) => {
     e.preventDefault();
     detectScreens(/*interactive*/ true);
   });
+  els.liveDetectScreensBtn.addEventListener("click", (e) => {
+    e.preventDefault();
+    detectScreens(/*interactive*/ true);
+  });
   els.fullscreenCheck.addEventListener("change", () => {
-    state.fullscreenBroadcast = els.fullscreenCheck.checked;
-    persist();
-    if (state.broadcastOpen) sendPlacement();
+    setFullscreenBroadcast(els.fullscreenCheck.checked);
+  });
+  els.liveFullscreenCheck.addEventListener("change", () => {
+    setFullscreenBroadcast(els.liveFullscreenCheck.checked);
   });
 
   els.quitBtn.addEventListener("click", quitYinka);
@@ -366,6 +470,10 @@ function persist() {
     searchMode: state.searchMode,
     selectedScreenKey: state.selectedScreenKey,
     fullscreenBroadcast: state.fullscreenBroadcast,
+    bibleBookSlug: state.bible.activeBookSlug,
+    bibleChapter: state.bible.activeChapter,
+    hymnId: state.hymn.activeId,
+    hymnStanza: state.hymn.activeStanza,
   });
 }
 
@@ -421,29 +529,50 @@ function refreshScreensFromDetails(details) {
 }
 
 function paintScreenSelect() {
-  els.screenSelect.innerHTML = "";
+  paintOneScreenSelect(els.screenSelect);
+  paintOneScreenSelect(els.liveScreenSelect);
+}
+
+function paintOneScreenSelect(selectEl) {
+  selectEl.innerHTML = "";
   const popup = document.createElement("option");
   popup.value = "popup";
   popup.textContent = "This window (centered popup)";
-  els.screenSelect.appendChild(popup);
+  selectEl.appendChild(popup);
   for (const s of state.screens) {
     const opt = document.createElement("option");
     opt.value = s.key;
     opt.textContent = `${s.isPrimary ? "★ " : ""}${s.label}`;
-    els.screenSelect.appendChild(opt);
+    selectEl.appendChild(opt);
   }
   // Restore selection if still present, otherwise auto-pick the first non-primary.
   const persisted = state.selectedScreenKey;
-  if (persisted && [...els.screenSelect.options].some((o) => o.value === persisted)) {
-    els.screenSelect.value = persisted;
+  if (persisted && [...selectEl.options].some((o) => o.value === persisted)) {
+    selectEl.value = persisted;
   } else if (state.screens.length > 1) {
     const ext = state.screens.find((s) => !s.isPrimary);
-    els.screenSelect.value = ext ? ext.key : "popup";
-    state.selectedScreenKey = els.screenSelect.value;
+    selectEl.value = ext ? ext.key : "popup";
+    state.selectedScreenKey = selectEl.value;
   } else {
-    els.screenSelect.value = "popup";
+    selectEl.value = "popup";
     state.selectedScreenKey = "popup";
   }
+}
+
+function setSelectedScreenKey(key) {
+  state.selectedScreenKey = key;
+  if (els.screenSelect.value !== key) els.screenSelect.value = key;
+  if (els.liveScreenSelect.value !== key) els.liveScreenSelect.value = key;
+  persist();
+  if (state.broadcastOpen) sendPlacement();
+}
+
+function setFullscreenBroadcast(on) {
+  state.fullscreenBroadcast = !!on;
+  els.fullscreenCheck.checked = state.fullscreenBroadcast;
+  els.liveFullscreenCheck.checked = state.fullscreenBroadcast;
+  persist();
+  if (state.broadcastOpen) sendPlacement();
 }
 
 function selectedScreen() {
@@ -590,6 +719,7 @@ function tryAutoLive() {
 function setPreview(payload) {
   state.preview = payload;
   paintPreview();
+  paintBibleVerseHighlights();
   if (state.goLive) {
     setLive(payload, { silent: true });
   }
@@ -599,6 +729,7 @@ function setLive(payload, { silent } = {}) {
   state.live = payload;
   state.hidden = false;
   paintLive();
+  paintBibleVerseHighlights();
   bus.publish({ type: "live", payload });
   setOnAir(state.goLive);
   if (!silent) toast("Live output updated.");
@@ -985,6 +1116,462 @@ async function quitYinka() {
       '<div><div style="font-size:18px;color:#f3f5f8;margin-bottom:8px;">Yinka stopped.</div>' +
       '<div>You can close this tab. Relaunch Yinka.app to start again.</div></div>' +
     '</div>';
+}
+
+/* ---------- Hymns ---------- */
+function paintHymnResults(hymns) {
+  els.hymnResults.innerHTML = "";
+  if (!hymns.length) {
+    const empty = document.createElement("li");
+    empty.className = "hymn-empty";
+    empty.textContent = "No hymns matched.";
+    els.hymnResults.appendChild(empty);
+    return;
+  }
+  for (const hymn of hymns) {
+    const li = document.createElement("li");
+    li.className = "hymn-item";
+    li.dataset.hymnId = hymn.id;
+    li.setAttribute("aria-selected", hymn.id === state.hymn.activeId ? "true" : "false");
+    const title = document.createElement("div");
+    title.className = "hymn-item-title";
+    title.textContent = hymn.title;
+    const meta = document.createElement("div");
+    meta.className = "hymn-item-meta";
+    meta.textContent = `${hymn.author} · ${hymn.year} · ${hymn.license}`;
+    li.appendChild(title);
+    li.appendChild(meta);
+    li.addEventListener("click", () => selectHymn(hymn.id));
+    els.hymnResults.appendChild(li);
+  }
+}
+
+function selectHymn(id, silent = false) {
+  const hymn = HYMNS.find((h) => h.id === id);
+  if (!hymn) return;
+  state.hymn.activeId = hymn.id;
+  state.hymn.activeStanza = Math.min(hymn.stanzas.length, state.hymn.activeStanza ?? 1);
+  persist();
+  for (const li of els.hymnResults.querySelectorAll(".hymn-item")) {
+    li.setAttribute("aria-selected", li.dataset.hymnId === hymn.id ? "true" : "false");
+  }
+  els.hymnTitle.textContent = `${hymn.title} · ${hymn.author} (${hymn.year})`;
+  els.hymnMeta.textContent = `${hymn.title} · ${hymn.stanzas.length} stanzas · ${hymn.license}`;
+  els.hymnDisplayAllBtn.disabled = false;
+  els.hymnQueueAllBtn.disabled = false;
+  paintHymnStanzas(hymn);
+  if (!silent) setPreview(hymnPayload(hymn, state.hymn.activeStanza, state.hymn.activeStanza));
+}
+
+function paintHymnStanzas(hymn) {
+  els.hymnStanzas.innerHTML = "";
+  const frag = document.createDocumentFragment();
+  hymn.stanzas.forEach((text, i) => {
+    const stanzaNum = i + 1;
+    const li = document.createElement("li");
+    li.className = "hymn-stanza";
+    li.dataset.stanza = String(stanzaNum);
+    li.setAttribute("aria-selected", stanzaNum === state.hymn.activeStanza ? "true" : "false");
+    const num = document.createElement("div");
+    num.className = "hymn-stanza-num";
+    num.textContent = `S${stanzaNum}`;
+    const body = document.createElement("div");
+    body.className = "hymn-stanza-text";
+    body.textContent = text;
+    const tools = document.createElement("div");
+    tools.className = "hymn-stanza-tools";
+    tools.appendChild(iconButton("+", "Queue stanza", (e) => {
+      e?.stopPropagation();
+      enqueue(hymnPayload(hymn, stanzaNum, stanzaNum));
+    }));
+    tools.appendChild(iconButton("▶", "Display stanza", (e) => {
+      e?.stopPropagation();
+      const p = hymnPayload(hymn, stanzaNum, stanzaNum);
+      setPreview(p);
+      if (state.goLive) setLive(p, {});
+    }, "go"));
+    li.addEventListener("click", () => selectHymnStanza(hymn, stanzaNum));
+    li.addEventListener("dblclick", () => {
+      const p = hymnPayload(hymn, stanzaNum, stanzaNum);
+      setPreview(p);
+      setLive(p, {});
+    });
+    li.appendChild(num);
+    li.appendChild(body);
+    li.appendChild(tools);
+    frag.appendChild(li);
+  });
+  els.hymnStanzas.appendChild(frag);
+}
+
+function selectHymnStanza(hymn, stanzaNum) {
+  state.hymn.activeId = hymn.id;
+  state.hymn.activeStanza = stanzaNum;
+  persist();
+  for (const li of els.hymnStanzas.querySelectorAll(".hymn-stanza")) {
+    li.setAttribute("aria-selected", li.dataset.stanza === String(stanzaNum) ? "true" : "false");
+  }
+  setPreview(hymnPayload(hymn, stanzaNum, stanzaNum));
+}
+
+function activeHymnPayload(scope) {
+  const hymn = HYMNS.find((h) => h.id === state.hymn.activeId);
+  if (!hymn) {
+    toast("Pick a hymn first.");
+    return null;
+  }
+  if (scope === "all") return hymnPayload(hymn, 1, hymn.stanzas.length);
+  const stanza = state.hymn.activeStanza ?? 1;
+  return hymnPayload(hymn, stanza, stanza);
+}
+
+function hymnPayload(hymn, start, end) {
+  const lo = Math.max(1, Math.min(start, end));
+  const hi = Math.min(hymn.stanzas.length, Math.max(start, end));
+  return {
+    reference: lo === hi ? `${hymn.title} · Stanza ${lo}` : `${hymn.title} · Stanzas ${lo}-${hi}`,
+    bookName: hymn.title,
+    bookSlug: `hymn:${hymn.id}`,
+    chapter: 1,
+    verseStart: lo,
+    verseEnd: hi,
+    text: hymn.stanzas.slice(lo - 1, hi).join("\n\n"),
+    translationId: "hymn",
+    translationName: `${hymn.license} hymn`,
+  };
+}
+
+/* ---------- Bible Reader ---------- */
+// Old Testament = first 39 canonical books, New Testament = last 27.
+const OT_COUNT = 39;
+
+function paintBibleBooks() {
+  const books = kjvStore.listBooks();
+  if (!books.length) {
+    els.bibleBooksOT.innerHTML = '<li class="bible-empty">KJV not loaded.</li>';
+    els.bibleBooksNT.innerHTML = "";
+    return;
+  }
+  const ot = books.slice(0, OT_COUNT);
+  const nt = books.slice(OT_COUNT);
+  els.bibleBooksOT.innerHTML = "";
+  els.bibleBooksNT.innerHTML = "";
+  for (const b of ot) els.bibleBooksOT.appendChild(makeBookLi(b));
+  for (const b of nt) els.bibleBooksNT.appendChild(makeBookLi(b));
+}
+
+function makeBookLi(book) {
+  const li = document.createElement("li");
+  li.textContent = book.name;
+  li.dataset.slug = book.slug;
+  li.title = `${book.name} · ${book.chapterCount} chapter${book.chapterCount === 1 ? "" : "s"}`;
+  li.addEventListener("click", () => selectBook(book.slug));
+  return li;
+}
+
+function selectBook(slug, silent = false) {
+  const books = kjvStore.listBooks();
+  const book = books.find((b) => b.slug === slug);
+  if (!book) return;
+  state.bible.activeBookSlug = slug;
+  state.bible.activeChapter = null;
+  state.bible.rangeStart = null;
+  state.bible.rangeEnd = null;
+  persist();
+
+  for (const li of els.bibleBooksOT.querySelectorAll("li")) {
+    li.setAttribute("aria-selected", li.dataset.slug === slug ? "true" : "false");
+  }
+  for (const li of els.bibleBooksNT.querySelectorAll("li")) {
+    li.setAttribute("aria-selected", li.dataset.slug === slug ? "true" : "false");
+  }
+
+  paintBibleChapters(book);
+  els.bibleVerseList.innerHTML = "";
+  els.bibleVersesTitle.textContent = `${book.name} · pick a chapter`;
+  els.bibleMeta.textContent = `${book.name} · ${book.chapterCount} chapters`;
+  paintBibleRangeButtons();
+  if (!silent) {
+    // Auto-pick chapter 1 so the user immediately sees verses on click.
+    selectChapter(1);
+  }
+}
+
+function paintBibleChapters(book) {
+  els.bibleChaptersTitle.textContent = `${book.name} · ${book.chapterCount} chapters`;
+  els.bibleChapterGrid.innerHTML = "";
+  for (let c = 1; c <= book.chapterCount; c++) {
+    const tile = document.createElement("button");
+    tile.type = "button";
+    tile.className = "chapter-tile";
+    tile.textContent = String(c);
+    tile.dataset.chapter = String(c);
+    tile.title = `${book.name} ${c}`;
+    tile.addEventListener("click", () => selectChapter(c));
+    els.bibleChapterGrid.appendChild(tile);
+  }
+}
+
+function selectChapter(chapter, silent = false) {
+  const slug = state.bible.activeBookSlug;
+  if (!slug) return;
+  const verses = kjvStore.chapterVerses(slug, chapter);
+  if (verses.length === 0) {
+    toast("Chapter not found.");
+    return;
+  }
+  state.bible.activeChapter = chapter;
+  state.bible.rangeStart = null;
+  state.bible.rangeEnd = null;
+  persist();
+
+  const books = kjvStore.listBooks();
+  const book = books.find((b) => b.slug === slug);
+  const bookName = book?.name ?? slug;
+
+  for (const tile of els.bibleChapterGrid.querySelectorAll(".chapter-tile")) {
+    tile.setAttribute(
+      "aria-selected",
+      tile.dataset.chapter === String(chapter) ? "true" : "false"
+    );
+  }
+
+  els.bibleVersesTitle.textContent = `${bookName} ${chapter} · ${verses.length} verses`;
+  paintBibleVerses(bookName, slug, chapter, verses);
+  paintBibleRangeButtons();
+  if (!silent) els.bibleVerseList.scrollTop = 0;
+}
+
+function paintBibleVerses(bookName, slug, chapter, verses) {
+  els.bibleVerseList.innerHTML = "";
+  const frag = document.createDocumentFragment();
+  for (let i = 0; i < verses.length; i++) {
+    const verseNum = i + 1;
+    const text = verses[i];
+    const li = document.createElement("li");
+    li.className = "bible-verse-row";
+    li.dataset.verse = String(verseNum);
+    li.dataset.bookSlug = slug;
+    li.dataset.chapter = String(chapter);
+    li.title = `Click ${bookName} ${chapter}:${verseNum} to preview · Shift-click to extend a range · Double-click to go live`;
+
+    const num = document.createElement("div");
+    num.className = "bible-verse-num";
+    num.textContent = `${verseNum}`;
+
+    const body = document.createElement("div");
+    body.className = "bible-verse-text";
+    body.textContent = text;
+
+    const tools = document.createElement("div");
+    tools.className = "bible-verse-tools";
+    const queueBtn = iconButton("+", "Add to queue", (e) => {
+      e?.stopPropagation();
+      enqueue(verseToPayload(slug, bookName, chapter, verseNum, verseNum));
+    });
+    const playBtn = iconButton("▶", "Display now", (e) => {
+      e?.stopPropagation();
+      const p = verseToPayload(slug, bookName, chapter, verseNum, verseNum);
+      setPreview(p);
+      if (state.goLive) setLive(p, {});
+    }, "go");
+    tools.appendChild(queueBtn);
+    tools.appendChild(playBtn);
+
+    li.addEventListener("click", (e) => onBibleVerseClick(verseNum, e));
+    li.addEventListener("dblclick", (e) => {
+      e.preventDefault();
+      const p = verseToPayload(slug, bookName, chapter, verseNum, verseNum);
+      setPreview(p);
+      setLive(p, {});
+    });
+
+    li.appendChild(num);
+    li.appendChild(body);
+    li.appendChild(tools);
+    frag.appendChild(li);
+  }
+  els.bibleVerseList.appendChild(frag);
+  paintBibleVerseHighlights();
+}
+
+function verseToPayload(slug, bookName, chapter, start, end) {
+  const verses = kjvStore.chapterVerses(slug, chapter);
+  const lo = Math.min(start, end);
+  const hi = Math.max(start, end);
+  const text = verses.slice(lo - 1, hi).join(" ");
+  const reference =
+    lo === hi
+      ? `${bookName} ${chapter}:${lo}`
+      : `${bookName} ${chapter}:${lo}-${hi}`;
+  return {
+    reference,
+    bookName,
+    bookSlug: slug,
+    chapter,
+    verseStart: lo,
+    verseEnd: hi,
+    text,
+    translationId: "kjv",
+    translationName: "King James Version",
+  };
+}
+
+function onBibleVerseClick(verseNum, e) {
+  const slug = state.bible.activeBookSlug;
+  const chapter = state.bible.activeChapter;
+  if (!slug || !chapter) return;
+  const books = kjvStore.listBooks();
+  const book = books.find((b) => b.slug === slug);
+  const bookName = book?.name ?? slug;
+
+  if (e.shiftKey && state.bible.rangeStart != null) {
+    state.bible.rangeEnd = verseNum;
+  } else {
+    state.bible.rangeStart = verseNum;
+    state.bible.rangeEnd = verseNum;
+  }
+  paintBibleVerseHighlights();
+  paintBibleRangeButtons();
+
+  // Single click → set preview to the (possibly multi-verse) selection.
+  const p = verseToPayload(
+    slug,
+    bookName,
+    chapter,
+    state.bible.rangeStart,
+    state.bible.rangeEnd ?? state.bible.rangeStart
+  );
+  setPreview(p);
+}
+
+function clearBibleRange() {
+  state.bible.rangeStart = null;
+  state.bible.rangeEnd = null;
+  paintBibleVerseHighlights();
+  paintBibleRangeButtons();
+}
+
+function bibleRangePayload() {
+  const slug = state.bible.activeBookSlug;
+  const chapter = state.bible.activeChapter;
+  if (!slug || !chapter || state.bible.rangeStart == null) {
+    toast("Select a verse (or shift-click for a range) first.");
+    return null;
+  }
+  const books = kjvStore.listBooks();
+  const book = books.find((b) => b.slug === slug);
+  const bookName = book?.name ?? slug;
+  return verseToPayload(
+    slug,
+    bookName,
+    chapter,
+    state.bible.rangeStart,
+    state.bible.rangeEnd ?? state.bible.rangeStart
+  );
+}
+
+function paintBibleRangeButtons() {
+  const has = state.bible.rangeStart != null;
+  const lo = state.bible.rangeStart;
+  const hi = state.bible.rangeEnd ?? state.bible.rangeStart;
+  const isRange = has && lo !== hi;
+  els.bibleClearSelectionBtn.hidden = !has;
+  els.biblePresentRangeBtn.hidden = !isRange;
+  els.bibleQueueRangeBtn.hidden = !isRange;
+  if (isRange) {
+    const lo2 = Math.min(lo, hi);
+    const hi2 = Math.max(lo, hi);
+    const count = hi2 - lo2 + 1;
+    els.biblePresentRangeBtn.textContent = `Display range (${count})`;
+    els.bibleQueueRangeBtn.textContent = `+ Queue range (${count})`;
+  }
+}
+
+function paintBibleVerseHighlights() {
+  const slug = state.bible.activeBookSlug;
+  const chapter = state.bible.activeChapter;
+  if (!slug || !chapter) return;
+  const lo = state.bible.rangeStart != null
+    ? Math.min(state.bible.rangeStart, state.bible.rangeEnd ?? state.bible.rangeStart)
+    : null;
+  const hi = state.bible.rangeStart != null
+    ? Math.max(state.bible.rangeStart, state.bible.rangeEnd ?? state.bible.rangeStart)
+    : null;
+
+  const liveLo =
+    state.live && state.live.bookSlug === slug && state.live.chapter === chapter
+      ? state.live.verseStart
+      : null;
+  const liveHi =
+    state.live && state.live.bookSlug === slug && state.live.chapter === chapter
+      ? state.live.verseEnd
+      : null;
+
+  const previewLo =
+    state.preview && state.preview.bookSlug === slug && state.preview.chapter === chapter
+      ? state.preview.verseStart
+      : null;
+  const previewHi =
+    state.preview && state.preview.bookSlug === slug && state.preview.chapter === chapter
+      ? state.preview.verseEnd
+      : null;
+
+  for (const li of els.bibleVerseList.querySelectorAll(".bible-verse-row")) {
+    const v = Number(li.dataset.verse);
+    li.classList.remove("in-range", "is-live", "is-preview");
+    li.removeAttribute("aria-selected");
+    if (lo != null && v >= lo && v <= hi) {
+      if (v === lo && v === hi) li.setAttribute("aria-selected", "true");
+      else li.classList.add("in-range");
+    }
+    if (liveLo != null && v >= liveLo && v <= liveHi) li.classList.add("is-live");
+    if (previewLo != null && v >= previewLo && v <= previewHi && !li.classList.contains("is-live")) {
+      li.classList.add("is-preview");
+    }
+  }
+}
+
+function bibleQuickJump(query) {
+  const q = (query ?? "").trim();
+  if (!q) return;
+  // First try a full reference (John 3:16, Ps 23:1-3, etc.).
+  const refs = findReferences(q);
+  if (refs.length > 0) {
+    const r = refs[0];
+    selectBook(r.bookSlug, /*silent*/ true);
+    selectChapter(r.chapter);
+    state.bible.rangeStart = r.verseStart;
+    state.bible.rangeEnd = r.verseEnd ?? r.verseStart;
+    paintBibleVerseHighlights();
+    paintBibleRangeButtons();
+    scrollVerseIntoView(state.bible.rangeStart);
+    const p = bibleRangePayload();
+    if (p) setPreview(p);
+    return;
+  }
+  // Try "book chapter" form (John 3, Ps 23).
+  const bookChapter = /^([1-3]?\s?[a-z][a-z\s.]+?)\s+(\d+)\s*$/i.exec(q);
+  if (bookChapter) {
+    const slug = resolveBookSlug(bookChapter[1].trim().replace(/\./g, ""));
+    if (slug) {
+      selectBook(slug, /*silent*/ true);
+      selectChapter(parseInt(bookChapter[2], 10));
+      return;
+    }
+  }
+  // Just a book name.
+  const slug = resolveBookSlug(q);
+  if (slug) {
+    selectBook(slug);
+    return;
+  }
+  toast("Couldn't find a book matching that. Try “John 3:16” or “Romans”.");
+}
+
+function scrollVerseIntoView(verseNum) {
+  const li = els.bibleVerseList.querySelector(`[data-verse="${verseNum}"]`);
+  if (li) li.scrollIntoView({ behavior: "smooth", block: "center" });
 }
 
 /* ---------- Go ---------- */

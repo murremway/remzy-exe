@@ -289,15 +289,17 @@ public sealed class WhisperEngine : ICaptionEngine
                     continue;
 
                 _committedSinceLastFlush = text.Trim();
-                _dispatcher.BeginInvoke(new Action(() => Hypothesis?.Invoke(_committedSinceLastFlush)));
+                // Fire-and-forget UI dispatch. Discard the DispatcherOperation so CS4014
+                // doesn't fire (we never want to await a UI marshal in the inference loop).
+                _ = _dispatcher.BeginInvoke(new Action(() => Hypothesis?.Invoke(_committedSinceLastFlush)));
 
                 if ((DateTime.UtcNow - _lastVoiceUtc).TotalMilliseconds > SilenceMsToFinalize && !string.IsNullOrEmpty(_committedSinceLastFlush))
                 {
                     var final = _committedSinceLastFlush;
                     _committedSinceLastFlush = "";
                     SpeechDiagnostics.Info("Whisper", "Final: " + final);
-                    _dispatcher.BeginInvoke(new Action(() => PhraseCommitted?.Invoke(final)));
-                    _dispatcher.BeginInvoke(new Action(() => Hypothesis?.Invoke("")));
+                    _ = _dispatcher.BeginInvoke(new Action(() => PhraseCommitted?.Invoke(final)));
+                    _ = _dispatcher.BeginInvoke(new Action(() => Hypothesis?.Invoke("")));
                     lock (_bufferLock) _pcm.Clear();
                 }
             }
@@ -382,7 +384,7 @@ public sealed class WhisperEngine : ICaptionEngine
                 if (total > 0)
                 {
                     var p = received / (double)total;
-                    _dispatcher.BeginInvoke(new Action(() => ModelDownloadProgress?.Invoke(p)));
+                    _ = _dispatcher.BeginInvoke(new Action(() => ModelDownloadProgress?.Invoke(p)));
                     if ((received & 0xFFFFF) == 0)
                         Status($"Downloading {_settings.WhisperModel}: {p:P0}");
                 }

@@ -31,6 +31,15 @@
     <Using Remove="System.Drawing" />
   </ItemGroup>
   <ItemGroup>
+    <!--
+      Older source drops may still contain WindowsSpeechCaptionService.cs. The
+      current app uses the ICaptionEngine implementations instead
+      (WinRtSpeechEngine/SapiSpeechEngine/WebSpeechEngine/WhisperEngine), so
+      keep the obsolete file out of implicit SDK compilation if it is present.
+    -->
+    <Compile Remove="WindowsSpeechCaptionService.cs" />
+  </ItemGroup>
+  <ItemGroup>
     <ProjectReference Include="..\Yinka.Core\Yinka.Core.csproj" />
   </ItemGroup>
   <ItemGroup>
