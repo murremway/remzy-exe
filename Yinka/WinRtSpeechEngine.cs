@@ -140,14 +140,28 @@ public sealed class WinRtSpeechEngine : ICaptionEngine
         catch (Exception ex)
         {
             UnhookAndDispose(recognizer);
-            Fail(new EngineFailure(
-                "Could not start the speech session.",
-                ex.Message + "\n\nTip: ensure no other app is holding the microphone exclusively.",
-                SettingsLinks.MicrophonePrivacy,
-                "Open Microphone settings",
-                SettingsLinks.SoundDevices,
-                "Open Sound devices",
-                ex));
+            if (IsSpeechPrivacyPolicyDeclined(ex))
+            {
+                Fail(new EngineFailure(
+                    "Speech privacy policy not accepted.",
+                    "Windows speech recognition requires the speech privacy statement to be accepted. Turn on Online speech recognition in Settings → Privacy & security → Speech, then try again.",
+                    SettingsLinks.OnlineSpeechPrivacy,
+                    "Open Online Speech privacy",
+                    SettingsLinks.MicrophonePrivacy,
+                    "Open Microphone privacy",
+                    ex));
+            }
+            else
+            {
+                Fail(new EngineFailure(
+                    "Could not start the speech session.",
+                    ex.Message + "\n\nTip: ensure no other app is holding the microphone exclusively.",
+                    SettingsLinks.MicrophonePrivacy,
+                    "Open Microphone settings",
+                    SettingsLinks.SoundDevices,
+                    "Open Sound devices",
+                    ex));
+            }
             return;
         }
 
@@ -204,6 +218,26 @@ public sealed class WinRtSpeechEngine : ICaptionEngine
         t.InitialSilenceTimeout = TimeSpan.FromSeconds(Math.Max(1, _settings.WinRtInitialSilenceSeconds));
         t.EndSilenceTimeout = TimeSpan.FromSeconds(Math.Max(1, _settings.WinRtEndSilenceSeconds));
         t.BabbleTimeout = TimeSpan.FromSeconds(Math.Max(1, _settings.WinRtBabbleSeconds));
+    }
+
+    private static bool IsSpeechPrivacyPolicyDeclined(Exception ex)
+    {
+        if (ex is null)
+            return false;
+
+        var message = ex.Message?.ToLowerInvariant();
+        if (!string.IsNullOrWhiteSpace(message))
+        {
+            if (message.Contains("privacy policy") ||
+                message.Contains("privacy statement") ||
+                message.Contains("speech privacy") ||
+                message.Contains("policy was not accepted"))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private void EmitCompileFailure(SpeechRecognitionResultStatus status)
